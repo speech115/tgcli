@@ -1,4 +1,13 @@
-"""Update cursor engine behind archive sync (ADR-0063 / ADR-0103 / FEED-001)."""
+"""The common update cursor behind archive sync.
+
+One ``updates.getDifference`` pass per run brings new and edited messages and,
+above all, deletions in private chats, which arrive without a peer and only
+through this cursor. Channels are not polled one by one: a channel that falls
+behind shows up as ``channel_activity`` and archive sync reads it by
+``min_id``. When Telegram answers ``differenceTooLong`` the cursor jumps to
+the current state and the pass reports ``too_long``; archive sync then finds
+the chats that moved through a dialog poll.
+"""
 
 from __future__ import annotations
 
@@ -6,15 +15,11 @@ from datetime import UTC, datetime
 
 from telethon import errors as telethon_errors, utils
 from telethon.tl import types
-from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import (
-    GetChannelDifferenceRequest,
     GetDifferenceRequest,
     GetStateRequest,
 )
 from telethon.tl.types import (
-    Channel,
-    ChannelMessagesFilterEmpty,
     MessageEmpty,
     UpdateChannelTooLong,
     UpdateDeleteChannelMessages,
@@ -25,23 +30,15 @@ from telethon.tl.types import (
     UpdateNewMessage,
 )
 from telethon.tl.types.updates import (
-    ChannelDifference,
-    ChannelDifferenceEmpty,
-    ChannelDifferenceTooLong,
     Difference,
     DifferenceEmpty,
     DifferenceSlice,
     DifferenceTooLong,
 )
 
-from tgcli import chatref, pace
-from tgcli.archive import changes_cursor, gaps as gaps_mod
 from tgcli.archive.changes_cursor import ChangesCursor
-from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.messages import message_to_dict
-from tgcli.output import note
 
-CHANNEL_DIFF_LIMIT = 100
 PTS_TOTAL_LIMIT = 100_000
 
 
@@ -65,30 +62,7 @@ def _from_state(state) -> ChangesCursor:
         qts=int(state.qts),
         date=_unix(state.date),
         seq=int(state.seq),
-        channels={},
     )
-
-
-async def _resolve_channel(tg, ref: str):
-    try:
-        entity = await tg.get_entity(chatref.parse(ref))
-    except ValueError as exc:
-        raise NotFoundError(f"dialog not found: {ref!r}") from exc
-    if not isinstance(entity, Channel):
-        raise PolicyError(
-            f"{ref!r} is not a channel/supergroup; "
-            "only channels are subscribed — private dialogs use the common tier"
-        )
-    return entity
-
-
-async def _channel_pts(tg, entity) -> int:
-    """Baseline at the channel's current pts (no history replay)."""
-    full = await tg(GetFullChannelRequest(channel=entity))
-    pts = getattr(full.full_chat, "pts", None)
-    if not isinstance(pts, int) or pts < 0:
-        raise ConfigError(f"channel {entity.id} did not report a pts baseline")
-    return pts
 
 
 def _bump_skipped(skipped: dict[str, int], name: str, n: int = 1) -> None:
@@ -128,108 +102,46 @@ def _message_event(kind: str, message, *, chats) -> dict:
 def _map_update(
     update,
     *,
-    subscribed: set[int],
     chats,
     skipped: dict,
     private_deletes: bool = False,
 ) -> list[dict]:
-    events: list[dict] = []
     if isinstance(update, (UpdateNewMessage, UpdateNewChannelMessage)):
-        message = update.message
-        peer = (
-            _peer_id(message.peer_id)
-            if getattr(message, "peer_id", None) is not None
-            else None
-        )
-        if (
-            isinstance(update, UpdateNewChannelMessage)
-            and peer is not None
-            and peer in subscribed
-        ):
-            return events
-        events.append(_message_event("message_new", message, chats=chats))
-        return events
+        return [_message_event("message_new", update.message, chats=chats)]
     if isinstance(update, (UpdateEditMessage, UpdateEditChannelMessage)):
-        message = update.message
-        peer = (
-            _peer_id(message.peer_id)
-            if getattr(message, "peer_id", None) is not None
-            else None
-        )
-        if (
-            isinstance(update, UpdateEditChannelMessage)
-            and peer is not None
-            and peer in subscribed
-        ):
-            return events
-        events.append(_message_event("message_edit", message, chats=chats))
-        return events
+        return [_message_event("message_edit", update.message, chats=chats)]
     if isinstance(update, UpdateDeleteChannelMessages):
         peer = _peer_id(types.PeerChannel(update.channel_id))
-        if peer in subscribed:
-            return events
-        events.append(
-            {"type": "message_delete", "peer": peer, "ids": list(update.messages)}
-        )
-        return events
+        return [{"type": "message_delete", "peer": peer, "ids": list(update.messages)}]
     if isinstance(update, UpdateDeleteMessages):
         if private_deletes:
-            events.append(
-                {
-                    "type": "message_delete",
-                    "peer": None,
-                    "ids": list(update.messages),
-                }
-            )
-            return events
+            return [
+                {"type": "message_delete", "peer": None, "ids": list(update.messages)}
+            ]
         _bump_skipped(skipped, type(update).__name__, len(update.messages) or 1)
-        return events
+        return []
     if isinstance(update, UpdateChannelTooLong):
         peer = _peer_id(types.PeerChannel(update.channel_id))
-        if peer in subscribed:
-            return events
-        events.append({"type": "channel_activity", "peer": peer})
-        return events
+        return [{"type": "channel_activity", "peer": peer}]
     _bump_skipped(skipped, type(update).__name__)
-    return events
-
-
-def _map_messages(messages, *, kind: str, chats, skip_peers: set[int]) -> list[dict]:
-    out: list[dict] = []
-    for message in messages or ():
-        peer = (
-            _peer_id(message.peer_id)
-            if getattr(message, "peer_id", None) is not None
-            else None
-        )
-        if peer is not None and peer in skip_peers:
-            continue
-        out.append(_message_event(kind, message, chats=chats))
-    return out
+    return []
 
 
 def _map_difference_events(
     result,
     *,
-    subscribed: set[int],
     skipped: dict,
     private_deletes: bool = False,
 ) -> list[dict]:
     chats = list(result.chats or ())
-    events: list[dict] = []
-    events.extend(
-        _map_messages(
-            result.new_messages,
-            kind="message_new",
-            chats=chats,
-            skip_peers=subscribed,
-        )
-    )
+    events = [
+        _message_event("message_new", message, chats=chats)
+        for message in result.new_messages or ()
+    ]
     for update in result.other_updates or ():
         events.extend(
             _map_update(
                 update,
-                subscribed=subscribed,
                 chats=chats,
                 skipped=skipped,
                 private_deletes=private_deletes,
@@ -240,11 +152,10 @@ def _map_difference_events(
 
 async def _poll_common(
     tg, cursor: ChangesCursor, *, skipped: dict, private_deletes: bool = False
-) -> tuple[list[dict], ChangesCursor, dict | None, list]:
+) -> tuple[list[dict], ChangesCursor, bool, list]:
     events: list[dict] = []
-    gap = None
+    too_long = False
     requests: list = []
-    subscribed = set(cursor.channels)
     pts, qts, date, seq = cursor.pts, cursor.qts, cursor.date, cursor.seq
     while True:
         request = GetDifferenceRequest(
@@ -260,7 +171,7 @@ async def _poll_common(
             seq = int(result.seq)
             break
         if isinstance(result, DifferenceTooLong):
-            gap = gaps_mod.gap("common", reason="differenceTooLong")
+            too_long = True
             state_req = GetStateRequest()
             requests.append(state_req)
             state = await tg(state_req)
@@ -275,7 +186,6 @@ async def _poll_common(
             events.extend(
                 _map_difference_events(
                     result,
-                    subscribed=subscribed,
                     skipped=skipped,
                     private_deletes=private_deletes,
                 )
@@ -294,63 +204,12 @@ async def _poll_common(
             continue
         _bump_skipped(skipped, type(result).__name__)
         break
-    new_cursor = changes_cursor.replace_common(
-        cursor, pts=pts, qts=qts, date=date, seq=seq
+    return (
+        events,
+        ChangesCursor(pts=pts, qts=qts, date=date, seq=seq),
+        too_long,
+        requests,
     )
-    return events, new_cursor, gap, requests
-
-
-async def _poll_channel(
-    tg, cursor: ChangesCursor, peer: int, *, skipped: dict
-) -> tuple[list[dict], ChangesCursor, dict | None, list]:
-    """Poll one channel; a loss returns its gap beside the moved cursor."""
-    events: list[dict] = []
-    requests: list = []
-    pts = cursor.channels[peer]
-    try:
-        entity = await tg.get_entity(peer)
-        input_channel = await tg.get_input_entity(entity)
-        while True:
-            request = GetChannelDifferenceRequest(
-                channel=input_channel,
-                filter=ChannelMessagesFilterEmpty(),
-                pts=pts,
-                limit=CHANNEL_DIFF_LIMIT,
-            )
-            requests.append(request)
-            result = await tg(request)
-            if isinstance(result, ChannelDifferenceEmpty):
-                pts = int(result.pts)
-                break
-            if isinstance(result, ChannelDifferenceTooLong):
-                dialog_pts = getattr(result.dialog, "pts", None)
-                if isinstance(dialog_pts, int):
-                    pts = dialog_pts
-                else:
-                    pts = await _channel_pts(tg, entity)
-                new_cursor = changes_cursor.with_channel(cursor, peer, pts)
-                gap = gaps_mod.gap(peer, reason="channelDifferenceTooLong")
-                return events, new_cursor, gap, requests
-            if isinstance(result, ChannelDifference):
-                events.extend(
-                    _map_difference_events(result, subscribed=set(), skipped=skipped)
-                )
-                pts = int(result.pts)
-                if getattr(result, "final", None):
-                    break
-                continue
-            _bump_skipped(skipped, type(result).__name__)
-            break
-    except CHANNEL_LOST_ERRORS as exc:
-        # A channel that turned private, was deleted, or banned the account
-        # must not stop the private chats and the other channels from
-        # advancing. Pages read before the loss are kept. The peer is dropped
-        # with a gap (its later updates are lost, and archive sync
-        # resubscribes it if access returns).
-        note(f"changes: channel {peer} unavailable ({type(exc).__name__})")
-        gap = gaps_mod.gap(peer, reason="channelUnavailable")
-        return events, changes_cursor.without_channel(cursor, peer), gap, requests
-    return events, changes_cursor.with_channel(cursor, peer, pts), None, requests
 
 
 # What Telegram says about a channel this account can no longer read.
@@ -371,39 +230,15 @@ async def once(
     from the local store). Without it they are skipped.
     """
     skipped: dict[str, int] = {}
-    events: list[dict] = []
-    gaps: list[dict] = []
-    all_requests: list = []
-
-    common_events, cursor, common_gap, reqs = await _poll_common(
+    events, cursor, too_long, requests = await _poll_common(
         tg, cursor, skipped=skipped, private_deletes=private_deletes
     )
-    events.extend(common_events)
-    all_requests.extend(reqs)
-    if common_gap is not None:
-        gaps.append(common_gap)
-
-    between_channels = pace.Pace(pace.PAGE_WAIT_S)
-    for peer in sorted(cursor.channels):
-        await between_channels.wait()
-        ch_events, cursor, ch_gap, reqs = await _poll_channel(
-            tg, cursor, peer, skipped=skipped
-        )
-        events.extend(ch_events)
-        all_requests.extend(reqs)
-        if ch_gap is not None:
-            gaps.append(ch_gap)
-
-    return {"events": events, "gaps": gaps, "skipped": skipped}, cursor, all_requests
+    return (
+        {"events": events, "too_long": too_long, "skipped": skipped},
+        cursor,
+        requests,
+    )
 
 
-async def init_changes(tg, peers: list[str] | None = None) -> ChangesCursor:
-    state = await tg(GetStateRequest())
-    cursor = _from_state(state)
-    for ref in peers or ():
-        entity = await _resolve_channel(tg, ref)
-        peer = _peer_id(entity)
-        pts = await _channel_pts(tg, entity)
-        cursor = changes_cursor.with_channel(cursor, peer, pts)
-        note(f"subscribed {peer} at pts {pts} (no history replay)")
-    return cursor
+async def init_changes(tg) -> ChangesCursor:
+    return _from_state(await tg(GetStateRequest()))

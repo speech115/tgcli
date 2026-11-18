@@ -120,8 +120,3 @@ async def sync(tg, args, account) -> tuple[dict, list[tuple]]:
     if data.get("remaining") and pace.exhausted():
         data["stop_reason"] = "wall_clock_cap"
     return data, archive_cmd.sync_rows(data)
-
-
-async def rebaseline(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.rebaseline(tg, account.alias)
-    return data, archive_cmd.rebaseline_rows(data)

@@ -100,7 +100,7 @@ flag.
 | 0 | success | |
 | 1 | runtime error | network (a lost connection ends `clone sync`/`init` and `archive sync` rather than degrading one item), unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account, a `media download` of the same message already running in another process |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`transcribe` already running for the account, a `media download` of the same message already running in another process |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than 30 s, or, in a mutation-safe session, a FloodWait longer than 30 s or a second one on the same send (`FLOOD_WAIT_X`, or `FLOOD_PREMIUM_WAIT_X`, the transfer speed limit of a non-Premium account: every "FloodWait" in this contract means either); `retry_after` in error JSON |
 

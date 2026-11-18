@@ -1,7 +1,7 @@
 """A peer that left archive scope keeps its data but no longer drives sync.
 
 `archive remove` keeps the peer's messages and `sync_state` row so a later
-`add` resumes. Reconciliation and explore staleness must still ignore it:
+`add` resumes. Explore staleness must still ignore it:
 only private users and explicit scope rows are in scope.
 """
 
@@ -63,9 +63,7 @@ def _run(*argv: str, capsys) -> dict:
     return json.loads(capsys.readouterr().out)
 
 
-def test_removed_channel_is_not_reconciled_and_does_not_make_search_stale(
-    tmp_path, monkeypatch, capsys
-):
+def test_removed_channel_does_not_make_search_stale(tmp_path, monkeypatch, capsys):
     _setup_config(tmp_path, monkeypatch)
     alice = User(
         id=7, is_self=False, access_hash=2, first_name="Alice", username="alice"
@@ -111,14 +109,7 @@ def test_removed_channel_is_not_reconciled_and_does_not_make_search_stale(
     assert alice_backfill["dialogs"][0]["more"] is False
     _run("archive", "remove", "@news", capsys=capsys)
 
-    calls_before_sync = len(client.get_messages_calls)
-    sync = _run("archive", "sync", capsys=capsys)
-
-    assert [item["peer_id"] for item in sync["reconcile"]["comparisons"]] == [7]
-    sync_calls = client.get_messages_calls[calls_before_sync:]
-    assert [entity for entity, _ids, limit, _reply in sync_calls if limit == 0] == [
-        alice
-    ]
+    _run("archive", "sync", capsys=capsys)
 
     search = _run("archive", "search", "hello", capsys=capsys)
     assert search["scope"]["stale"] is False

@@ -342,7 +342,7 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
         row = conn.execute("SELECT gap_json FROM account_sync WHERE id = 1").fetchone()
         if row is not None and row[0]:
             # A gap that does not parse still records a loss: it becomes an
-            # unreadableGap that rebaseline clears, never a crash or nothing.
+            # unreadableGap, never a crash or nothing.
             conn.execute(
                 "UPDATE account_sync SET gap_json = ? WHERE id = 1",
                 (gaps_mod.encode(gaps_mod.parse(row[0])),),

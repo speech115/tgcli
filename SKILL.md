@@ -54,7 +54,6 @@ selected account session, does one operation, and exits.
 | Finish an unfinished archive sync | A `catchups[]` item with `more: true` or a top-level `remaining: true` means run `tg --json archive sync` again; unfinished catch-ups resume without new activity |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --max-runtime 3000 --json archive transcribe` |
-| Rebaseline the archive's update cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
 | Offline archive timeline | `tg --json archive read CHAT [--around-id ID | --around-date ISO] [--since ISO] [--until ISO] [--limit N]` |
@@ -257,14 +256,14 @@ top-level `ok` result.
 
 ## Reading sync results
 
-- `archive sync` or `archive rebaseline` exiting 3 with "already running"
-  means another sync or rebaseline for that account is still running; wait
-  for it to finish instead of retrying in a loop.
-- `archive sync` returns `gaps`, every gap (lost updates) this pass hit, and
-  `gap`, the last of them. Read `gaps`: one pass can lose more than one
-  stream. A gap is stored until `tg --json archive rebaseline`; later clean
-  syncs keep it and return `gaps: []` and `gap: null`, so check
-  `archive status`: `gaps` lists every gap not yet cleared, oldest first.
+- `archive sync` exiting 3 with "already running" means another sync for
+  that account is still running; wait for it to finish instead of retrying
+  in a loop.
+- `archive sync` returns `gaps`, every stretch of lost updates still being
+  recovered, and `gap`, the last of them. After a `differenceTooLong` the
+  sync polls the dialog list and reads each chat that moved (`recovered`
+  counts them); the gap clears on its own once no catch-up is left. Edits and
+  deletions inside a lost stretch are not recovered.
 - `clone sync` with `sync.up_to_date: true` found nothing past the clone's
   cursors and did no other work: exit 0, no destination check, no roster, no
   pin read. It is the normal result of a scheduled run (see

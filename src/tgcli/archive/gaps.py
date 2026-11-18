@@ -1,4 +1,10 @@
-"""Archive gap records: their shape and how a stored list is read back."""
+"""Archive gap records: what a lost stretch of updates looks like on disk.
+
+A gap is written when the common update cursor could not be followed
+(``differenceTooLong``, or a stored cursor that no longer decodes). Archive
+sync then reads every chat that moved by ``min_id`` and clears the gaps once
+no catch-up is left; edits and deletions inside the lost stretch stay lost.
+"""
 
 from __future__ import annotations
 
@@ -9,22 +15,22 @@ UNREADABLE_REASON = "unreadableGap"
 
 
 def gap(scope, *, reason: str) -> dict[str, Any]:
-    recover: dict[str, Any] = {"edits_deletes": "lost"}
-    if scope == "common":
-        recover["creation"] = (
-            "re-read chats of interest with: tg read CHAT --after-id N"
-        )
-    else:
-        recover["creation"] = f"re-read with: tg read {scope} --after-id N"
-    return {"scope": scope, "reason": reason, "recover": recover}
+    return {
+        "scope": scope,
+        "reason": reason,
+        "recover": {
+            "edits_deletes": "lost",
+            "creation": "archive sync re-reads the chats that moved",
+        },
+    }
 
 
 def parse(raw: str | None) -> list[dict[str, Any]]:
     """Every stored gap, oldest first.
 
     Accepts the v10 list and the v9 single object. A value that is neither
-    still means something was lost, so it reads as one ``unreadableGap``
-    that only ``rebaseline`` clears, never as no gap.
+    still means something was lost, so it reads as one ``unreadableGap``,
+    never as no gap.
     """
     if not raw:
         return []
