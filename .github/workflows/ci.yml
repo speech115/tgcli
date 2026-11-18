@@ -71,6 +71,6 @@ jobs:
         run: uv sync --frozen
       - name: Run tests
         # Same hostile values as scripts/gate.sh: tests set their own env.
-        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
+        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live --durations=25
       # tests/live is not run here: CI has no Telegram session, so every live
       # test skips. scripts/gate.sh still runs it on a developer's machine.
