@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import copy
 import shutil
+from dataclasses import dataclass, field
+from typing import Any
 
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
@@ -39,6 +41,33 @@ class RunPace:
         self.media = pace.Pace(pace.MEDIA_INTERVAL_S)
 
 
+@dataclass
+class SendRun:
+    """What every send of one sync run shares, so each step takes this
+    instead of the same eight values one by one."""
+
+    tg: Any
+    clone_state: state.CloneState
+    account_alias: str
+    me: Any
+    paces: RunPace
+    progress: Any = None
+    author_cache: dict = field(default_factory=dict)
+    reforward_cache: dict | None = field(default_factory=dict)
+    poll_votes: list = field(default_factory=list)
+
+    def audit(self, action: str, source_ids, **extra) -> None:
+        safety.append_audit(
+            action,
+            self.account_alias,
+            {
+                "clone_id": self.clone_state.clone_id,
+                "source_message_ids": list(source_ids),
+                **extra,
+            },
+        )
+
+
 def _body_text(message, author, plan) -> tuple[str, list | None]:
     return quote_fallback.apply_body(message, author, plan)
 
@@ -54,43 +83,28 @@ def _drops_author(leg: AnyLeg, messages) -> bool:
 
 
 async def reupload_batch(
-    tg,
+    run: SendRun,
     destination,
-    clone_state,
-    account_alias,
     messages,
     random_ids,
     reply_to,
     author,
     plan,
-    progress=None,
     *,
     by_reference=False,
     overflow,
-    paces: RunPace,
 ):
-
-    def audit() -> None:
-        safety.append_audit(
-            "clone-sync-reupload",
-            account_alias,
-            {
-                "clone_id": clone_state.clone_id,
-                "source_message_ids": [m.id for m in messages],
-            },
-        )
-
+    tg = run.tg
+    source_ids = [m.id for m in messages]
     if by_reference:
-        audit()
+        run.audit("clone-sync-reupload", source_ids)
         # An unprotected source lets Telegram reuse its own file: no bytes
         # move, and a sticker stays a sticker. Any refusal but a flood falls
         # back to the byte copy below.
         try:
             return await _send(
-                tg,
+                run,
                 destination,
-                clone_state,
-                account_alias,
                 messages,
                 random_ids,
                 reply_to,
@@ -98,7 +112,6 @@ async def reupload_batch(
                 plan,
                 lambda message, album: _referenced(message),
                 overflow,
-                paces,
             )
         except TRANSIENT_ERRORS:
             # A timeout or 500 leaves the send's outcome unknown: reuploading
@@ -107,22 +120,22 @@ async def reupload_batch(
         except telethon_errors.RPCError as exc:
             note(
                 f"warning: clone media by reference refused ({exc}); reuploading "
-                f"source message(s) {[m.id for m in messages]}"
+                f"source message(s) {source_ids}"
             )
-    cache = reupload.ensure_cache_dir(clone_state)
+    cache = reupload.ensure_cache_dir(run.clone_state)
     downloads = {}
     for message in messages:
         if _has_media(message):
-            await paces.media.wait()
+            await run.paces.media.wait()
             downloads[message.id] = await reupload.download_for_reupload(
-                tg, message, cache, progress
+                tg, message, cache, run.progress
             )
     if not by_reference:
-        audit()
+        run.audit("clone-sync-reupload", source_ids)
 
     async def uploaded(message, album):
         media = await reupload.uploaded_media(
-            tg, message, downloads[message.id], progress
+            tg, message, downloads[message.id], run.progress
         )
         if not album:
             return media
@@ -135,10 +148,8 @@ async def reupload_batch(
         return input_media
 
     return await _send(
-        tg,
+        run,
         destination,
-        clone_state,
-        account_alias,
         messages,
         random_ids,
         reply_to,
@@ -146,7 +157,6 @@ async def reupload_batch(
         plan,
         uploaded,
         overflow,
-        paces,
     )
 
 
@@ -160,10 +170,8 @@ async def _referenced(message):
 
 
 async def _send(
-    tg,
+    run: SendRun,
     destination,
-    clone_state,
-    account_alias,
     messages,
     random_ids,
     reply_to,
@@ -171,7 +179,6 @@ async def _send(
     plan,
     media_for,
     overflow,
-    paces: RunPace,
 ):
     """One SendMessage/SendMedia/SendMultiMedia for the batch; ``media_for``
     turns a source message into the InputMedia this send carries."""
@@ -194,9 +201,7 @@ async def _send(
             request = functions.messages.SendMediaRequest(
                 **common, media=await media_for(message, False)
             )
-        return await _send_fitting_captions(
-            tg, request, messages, clone_state, account_alias, overflow, paces
-        )
+        return await _send_fitting_captions(run, request, messages, overflow)
     multi_media = []
     for index, (message, random_id) in enumerate(
         zip(messages, random_ids, strict=True)
@@ -215,9 +220,7 @@ async def _send(
     request = functions.messages.SendMultiMediaRequest(
         peer=destination, multi_media=multi_media, reply_to=reply_to
     )
-    return await _send_fitting_captions(
-        tg, request, messages, clone_state, account_alias, overflow, paces
-    )
+    return await _send_fitting_captions(run, request, messages, overflow)
 
 
 # The caption limit without Premium. A Premium author may post up to 4096, so
@@ -225,9 +228,7 @@ async def _send(
 CAPTION_LIMIT = 1024
 
 
-async def _send_fitting_captions(
-    tg, request, messages, clone_state, account_alias, overflow, paces: RunPace
-):
+async def _send_fitting_captions(run: SendRun, request, messages, overflow):
     """Send ``request``; on MEDIA_CAPTION_TOO_LONG split every caption past
     ``CAPTION_LIMIT``, keep the head as the caption, retry once, and append
     ``(message, rest, entities)`` to ``overflow`` for the caller to send once
@@ -235,9 +236,7 @@ async def _send_fitting_captions(
     stands."""
     bodies = getattr(request, "multi_media", None) or [request]
     try:
-        return await _send_without_unavailable_emoji(
-            tg, request, messages, clone_state, account_alias, paces
-        )
+        return await _send_without_unavailable_emoji(run, request, messages)
     except telethon_errors.MediaCaptionTooLongError:
         long_ones = [
             (message, body)
@@ -246,14 +245,7 @@ async def _send_fitting_captions(
         ]
         if not long_ones:
             raise
-    safety.append_audit(
-        "clone-sync-caption-fallback",
-        account_alias,
-        {
-            "clone_id": clone_state.clone_id,
-            "source_message_ids": [message.id for message, _ in long_ones],
-        },
-    )
+    run.audit("clone-sync-caption-fallback", [message.id for message, _ in long_ones])
     rests = []
     for message, body in long_ones:
         body.message, body.entities, rest, rest_entities = split_caption(
@@ -261,9 +253,7 @@ async def _send_fitting_captions(
         )
         if rest:
             rests.append((message, rest, rest_entities))
-    response = await _send_without_unavailable_emoji(
-        tg, request, messages, clone_state, account_alias, paces
-    )
+    response = await _send_without_unavailable_emoji(run, request, messages)
     overflow.extend(rests)
     return response
 
@@ -313,29 +303,14 @@ def split_caption(text: str, entities) -> tuple[str, list | None, str, list | No
 
 
 async def send_caption_rests(
-    tg,
-    destination,
-    clone_state,
-    leg: AnyLeg,
-    account_alias,
-    overflow,
-    destination_of,
-    threaded,
-    paces: RunPace,
+    run: SendRun, destination, leg: AnyLeg, overflow, destination_of, threaded
 ):
     """Send each caption's rest right after its post, as a reply to it when
     the batch sits in a thread or topic so the rest stays there too. Each rest
     is saved as the clone's own message, so the next run's tail guard knows it."""
     if not overflow:
         return
-    safety.append_audit(
-        "clone-sync-caption-rest",
-        account_alias,
-        {
-            "clone_id": clone_state.clone_id,
-            "source_message_ids": [message.id for message, _, _ in overflow],
-        },
-    )
+    run.audit("clone-sync-caption-rest", [message.id for message, _, _ in overflow])
     for message, rest, entities in overflow:
         destination_id = destination_of[message.id]
         random_id = confirm.random_id()
@@ -349,11 +324,9 @@ async def send_caption_rests(
             no_webpage=True,
             entities=entities,
         )
-        journal.begin(clone_state, leg, "rest", [message.id])
+        journal.begin(run.clone_state, leg, "rest", [message.id])
         try:
-            response = await _send_without_unavailable_emoji(
-                tg, request, [message], clone_state, account_alias, paces
-            )
+            response = await _send_without_unavailable_emoji(run, request, [message])
         except Exception:
             note(
                 f"warning: clone source message {message.id}: caption past "
@@ -361,12 +334,16 @@ async def send_caption_rests(
                 f"the post is message {destination_id}"
             )
             raise
-        [rest_id] = confirm.confirmed_ids(
-            response, [random_id], what="the caption rest"
+        [rest_id] = _settle(
+            run,
+            leg,
+            response,
+            [random_id],
+            "the caption rest",
+            lambda ids, source_id=message.id: leg.record_raw_caption_rest(
+                source_id, ids[0]
+            ),
         )
-        leg.record_raw_caption_rest(message.id, rest_id)
-        journal.settle(clone_state, leg)
-        state.save(clone_state)
         note(
             f"warning: clone source message {message.id}: caption past "
             f"{CAPTION_LIMIT} characters (longer needs Premium) continues in "
@@ -374,15 +351,14 @@ async def send_caption_rests(
         )
 
 
-async def _send_without_unavailable_emoji(
-    tg, request, messages, clone_state, account_alias, paces: RunPace
-):
+async def _send_without_unavailable_emoji(run: SendRun, request, messages):
     """Send ``request``; on DOCUMENT_INVALID drop the custom emoji Telegram can
     no longer resolve and retry once. Their Unicode text stays, so the copy
     loses only the custom look. If none proves unavailable, the error stands."""
+    tg = run.tg
     bodies = getattr(request, "multi_media", None) or [request]
     try:
-        return await paces.send.call(lambda: tg(request))
+        return await run.paces.send.call(lambda: tg(request))
     except telethon_errors.DocumentInvalidError:
         wanted = {
             entity.document_id
@@ -404,16 +380,8 @@ async def _send_without_unavailable_emoji(
         if len(kept) != len(body.entities or ()):
             dropped[message.id] = len(body.entities) - len(kept)
         body.entities = kept
-    safety.append_audit(
-        "clone-sync-emoji-fallback",
-        account_alias,
-        {
-            "clone_id": clone_state.clone_id,
-            "source_message_ids": list(dropped),
-            "document_ids": sorted(unavailable),
-        },
-    )
-    response = await paces.send.call(lambda: tg(request))
+    run.audit("clone-sync-emoji-fallback", dropped, document_ids=sorted(unavailable))
+    response = await run.paces.send.call(lambda: tg(request))
     for message_id, count in dropped.items():
         note(
             f"warning: clone source message {message_id}: {count} unavailable "
@@ -450,24 +418,30 @@ async def _unavailable_emoji(tg, document_ids) -> set[int]:
     return unavailable
 
 
+def _settle(run: SendRun, leg: AnyLeg, response, random_ids, what, record):
+    """The one tail of every send: confirm what Telegram made, record it,
+    clear the send intent and save, in that order (a crash before the save
+    leaves the intent for ``journal.guard_tail`` to adopt)."""
+    destination_ids = confirm.confirmed_ids(response, random_ids, what=what)
+    record(destination_ids)
+    journal.settle(run.clone_state, leg)
+    state.save(run.clone_state)
+    return destination_ids
+
+
 async def forward_batch(
-    tg,
+    run: SendRun,
     source,
     destination,
-    clone_state,
     leg: AnyLeg,
-    account_alias,
     messages,
-    me,
-    author_cache,
     plan,
     *,
     topic_dest=None,
-    poll_votes: list | None = None,
-    progress=None,
-    reforward_cache: dict | None = None,
-    paces: RunPace,
 ):
+    """Copy one batch, by the transport ``plan`` chose, and record it."""
+    tg = run.tg
+    clone_state = run.clone_state
     source_ids = [message.id for message in messages]
     random_ids = [confirm.random_id() for _ in messages]
     reply_to = plan.reply_to
@@ -475,11 +449,13 @@ async def forward_batch(
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
-    # A proven original outranks the Part A prefix, because
-    # forwarding it carries Telegram's own header instead of describing one.
+    # A proven original outranks the attribution prefix, because forwarding
+    # it carries Telegram's own header instead of describing one.
     proven = None
-    if reforward_cache is not None and reforward.eligible(leg, messages, plan):
-        proven = await reforward.locate(tg, clone_state, messages[0], reforward_cache)
+    if run.reforward_cache is not None and reforward.eligible(leg, messages, plan):
+        proven = await reforward.locate(
+            tg, clone_state, messages[0], run.reforward_cache
+        )
     author = None
     if plan.needs_author and proven is None:
         if (
@@ -487,11 +463,11 @@ async def forward_batch(
             and getattr(messages[0], "fwd_from", None) is not None
         ):
             author = await attribution.forwarded_author_of(
-                tg, messages[0], author_cache
+                tg, messages[0], run.author_cache
             )
         else:
             author = await attribution.author_of(
-                tg, source, messages[0], me, author_cache
+                tg, source, messages[0], run.me, run.author_cache
             )
     mode = plan.mode
     overflow = []
@@ -499,16 +475,10 @@ async def forward_batch(
     if proven is not None:
         group, group_message_id = proven
         mode = "forwarded"
-        safety.append_audit(
-            "clone-sync-reforward",
-            account_alias,
-            {
-                "clone_id": clone_state.clone_id,
-                "source_message_ids": source_ids,
-                "group_message_ids": [group_message_id],
-            },
+        run.audit(
+            "clone-sync-reforward", source_ids, group_message_ids=[group_message_id]
         )
-        response = await paces.send.call(
+        response = await run.paces.send.call(
             lambda: tg(
                 functions.messages.ForwardMessagesRequest(
                     from_peer=group,
@@ -525,20 +495,16 @@ async def forward_batch(
             tg,
             messages[0],
             peer=source,
-            account_alias=account_alias,
+            account_alias=run.account_alias,
         )
-        if poll_marker is not None and poll_votes is not None:
-            poll_votes.append(poll_marker)
+        if poll_marker is not None:
+            run.poll_votes.append(poll_marker)
         text, entities = quote_fallback.apply_to_text(
             rendered_text, rendered_entities, author, plan
         )
-        safety.append_audit(
-            "clone-sync-snapshot",
-            account_alias,
-            {"clone_id": clone_state.clone_id, "source_message_ids": source_ids},
-        )
+        run.audit("clone-sync-snapshot", source_ids)
         response = await _send_without_unavailable_emoji(
-            tg,
+            run,
             functions.messages.SendMessageRequest(
                 peer=destination,
                 message=text,
@@ -548,16 +514,9 @@ async def forward_batch(
                 entities=entities,
             ),
             messages,
-            clone_state,
-            account_alias,
-            paces,
         )
     elif plan.mode == "forwarded":
-        safety.append_audit(
-            "clone-sync-forward",
-            account_alias,
-            {"clone_id": clone_state.clone_id, "source_message_ids": source_ids},
-        )
+        run.audit("clone-sync-forward", source_ids)
         request = functions.messages.ForwardMessagesRequest(
             from_peer=source,
             id=source_ids,
@@ -566,49 +525,43 @@ async def forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        response = await paces.send.call(lambda: tg(request))
+        response = await run.paces.send.call(lambda: tg(request))
     else:
         response = await reupload_batch(
-            tg,
+            run,
             destination,
-            clone_state,
-            account_alias,
             messages,
             random_ids,
             reply_to,
             author,
             plan,
-            progress,
             # Protected content is refused by reference, so only bytes copy it.
             by_reference=not getattr(source, "noforwards", False)
             and not any(getattr(m, "noforwards", False) for m in messages),
             overflow=overflow,
-            paces=paces,
         )
-    destination_ids = confirm.confirmed_ids(
-        response, random_ids, what="the complete cloned batch"
+
+    def record(destination_ids):
+        for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
+            leg.record_raw_mapping(source_id, destination_id)
+        leg.cursor = source_ids[-1]
+
+    destination_ids = _settle(
+        run, leg, response, random_ids, "the complete cloned batch", record
     )
-    for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
-        leg.record_raw_mapping(source_id, destination_id)
-    leg.cursor = source_ids[-1]
-    journal.settle(clone_state, leg)
-    state.save(clone_state)
     # After the save: a failed rest must not leave the post unmapped and
     # copied again by the next run.
     await send_caption_rests(
-        tg,
+        run,
         destination,
-        clone_state,
         leg,
-        account_alias,
         overflow,
         dict(zip(source_ids, destination_ids, strict=True)),
         threaded=reply_to is not None,
-        paces=paces,
     )
     if mode == "reuploaded":
         # Only a confirmed send *and* a durable mapping save may clear the
-        # cache — an incomplete confirmation or a crash before the save
+        # cache: an incomplete confirmation or a crash before the save
         # must leave the downloaded bytes for the next run's resume.
         shutil.rmtree(reupload.cache_dir(clone_state), ignore_errors=True)
     return len(source_ids), mode, plan.reply_flattened, plan.quote_flattened

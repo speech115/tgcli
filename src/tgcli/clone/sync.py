@@ -286,7 +286,6 @@ class _Run:
         self.destination = destination
         self.source_entity = source_entity
         self.account_alias = account_alias
-        self.me = me
         self.limit = limit
         self.forum = clone_state.destination_kind == "forum"
         self.copied = 0
@@ -301,10 +300,6 @@ class _Run:
         self.reply_flattened = 0
         self.quote_flattened: list[dict] = []
         self.markup_dropped: list[dict] = []
-        self.poll_votes: list[dict] = []
-        self.author_cache: dict = {}
-        self.reforward_cache: dict = {}
-        self.paces = clone_send.RunPace()
         self.more = False
         self.posts_leg = legs.posts(clone_state)
         self.resolve_ctx = quotes.ResolveContext(
@@ -312,6 +307,14 @@ class _Run:
         )
         self.progress = clone_progress.SyncProgress(
             source_entity.id, copied=len(clone_state.id_map)
+        )
+        self.send = clone_send.SendRun(
+            tg=tg,
+            clone_state=clone_state,
+            account_alias=account_alias,
+            me=me,
+            paces=clone_send.RunPace(),
+            progress=self.progress,
         )
         self.posts_exhausted = False
         # A post replying to a comment not copied yet waits for
@@ -487,21 +490,13 @@ class _Run:
             )
         batch_copied, mode, flattened, flattened_quote = await quotes.send_with_degrade(
             lambda active_plan: clone_send.forward_batch(
-                tg,
+                self.send,
                 source,
                 dest,
-                clone_state,
                 leg,
-                self.account_alias,
                 list(messages),
-                self.me,
-                self.author_cache,
                 active_plan,
                 topic_dest=topic_dest,
-                poll_votes=self.poll_votes,
-                progress=self.progress,
-                reforward_cache=self.reforward_cache,
-                paces=self.paces,
             ),
             list(messages),
             plan,
@@ -586,7 +581,7 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
             "reply_flattened": run.reply_flattened,
             "quote_flattened": run.quote_flattened,
             "markup_dropped": run.markup_dropped,
-            "poll_votes": run.poll_votes,
+            "poll_votes": run.send.poll_votes,
         },
         more=more,
         participants=participants,
