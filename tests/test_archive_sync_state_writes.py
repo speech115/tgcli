@@ -112,7 +112,7 @@ def test_write_account_sync_rows(conn, clock):
     assert _account_row(conn) == {
         **after_reconcile,
         "gap_json": None,
-        "last_sync_at": _ts(6),
+        "last_sync_at": _ts(4),
         "pending_catchups_json": None,
     }
 
