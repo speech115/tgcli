@@ -3,7 +3,7 @@
 `init` creates or re-adopts the destination (and, for a broadcast source with
 a readable linked group, its discussion group), then copies the source's
 description and avatar onto it. Those mechanics live here so the command
-module keeps the commit sequence and its audit boundaries (ADR-0020/0023/0044).
+module keeps the commit sequence and its audit boundaries.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ async def init_discussion(
     """Create/adopt and link the destination discussion group before any post.
     An unreadable source group is not an error: the clone stays posts-only and
     honestly records comments == "unavailable". A posts-only clone that has
-    already copied posts keeps its marker (ADR-0023: no anchor backfill)."""
+    already copied posts keeps its marker."""
     if clone_state.source_kind != "broadcast":
         return
     linked = discussion.linked_chat_id(full_chat)
@@ -148,7 +148,7 @@ async def init_discussion(
         and clone_state.id_map
         and not relinking
     ):
-        # ADR-0023: posts copied before the link have no anchors, and there
+        # posts copied before the link have no anchors, and there
         # is no backfill, so a posts-only clone is never upgraded in place.
         # A clone that was linked to this same group already has them.
         note(

@@ -369,7 +369,7 @@ def _read_request():
 async def test_regular_telethon_client_sleeps_a_short_flood_and_resends(
     tmp_path, monkeypatch
 ):
-    """ADR-0125: a flood of up to 30 s costs a read its wait, not exit 5."""
+    """a flood of up to 30 s costs a read its wait, not exit 5."""
     sleeps = []
 
     async def fake_sleep(seconds):

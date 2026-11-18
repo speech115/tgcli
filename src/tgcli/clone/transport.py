@@ -12,10 +12,10 @@ class TransportPlan:
     reply_to: object | None
     reply_flattened: bool
     needs_author: bool
-    # Quote fallback body (ADR-0036); applied before author attribution.
+    # Quote fallback body; applied before author attribution.
     body_prefix: str | None = None
     body_prefix_entities: tuple = ()
-    # Per-batch quote fallback row for sync reporting (ADR-0036).
+    # Per-batch quote fallback row for sync reporting.
     quote_flattened: dict | None = None
 
 
@@ -49,7 +49,7 @@ def decide(
         reply_to = None
         reply_flattened = False
     elif classified.kind == "deferred":
-        # ADR-0051: comments.sync_phase stops before send; never plant flat.
+        # comments.sync_phase stops before send; never plant flat.
         return TransportPlan(
             mode="deferred",
             reply_to=None,

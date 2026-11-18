@@ -143,7 +143,7 @@ def bounds(*names: str) -> Hook:
 def prepare_login(parser: argparse.ArgumentParser, args) -> None:
     """Validate login flag combinations (the local gate runs first).
 
-    TGCLI_NO_SEND deliberately does not apply (ADR-0042 §8).
+    TGCLI_NO_SEND deliberately does not apply.
     """
     continue_id = getattr(args, "continue_id", None)
     if continue_id:

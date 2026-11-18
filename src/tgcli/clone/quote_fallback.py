@@ -1,4 +1,4 @@
-"""Render quote degradations as prefixed body text (ADR-0036 / ADR-0037).
+"""Render quote degradations as prefixed body text.
 
 Synchronous and client-free: ``quotes`` decides when a quote cannot stay
 native; this module shapes the plan, the body prefix, and the recorded loss.

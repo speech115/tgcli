@@ -2,8 +2,8 @@
 
 A `tg` process per tool call pays the interpreter start, the session lock, the
 connect and Telethon's startup requests every time. This runner keeps one
-client connected across a burst of calls instead (the `tg-serve` mechanism,
-ADR-0124) and lets it go after `idle` seconds without a call, so a `tg` command
+client connected across a burst of calls instead (the `tg-serve` mechanism)
+and lets it go after `idle` seconds without a call, so a `tg` command
 or a launchd job on the same session file waits at most that long.
 
 Every call is still a full `tg --json --readonly` invocation through

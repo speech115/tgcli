@@ -82,7 +82,7 @@ def validate_session_stem(session: str, alias: str) -> str:
 
 
 def validate_role_name(role: str) -> str:
-    """Alias-grade role names; ``primary`` is reserved (ADR-0062)."""
+    """Alias-grade role names; ``primary`` is reserved."""
     if not role or not _ALIAS_RE.match(role):
         raise ConfigError(
             f"invalid session role {role!r}; "
@@ -151,7 +151,7 @@ def _parse_archive_root(raw_archive: object) -> Path | None:
 
 
 def _reject_colliding_sessions(accounts: dict[str, Account]) -> None:
-    """Fail closed when two accounts share one session file (ADR-0042).
+    """Fail closed when two accounts share one session file.
 
     macOS is a first-class target and its filesystem is case-insensitive, so
     `Work.session` and `work.session` are the same file: two Telegram

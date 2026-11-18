@@ -1,8 +1,8 @@
-"""Resolve clone reply classifications into native quotes or fallbacks (ADR-0036).
+"""Resolve clone reply classifications into native quotes or fallbacks.
 
 Client-bound: reachability probes, cross-leg anchor walks, and send-time
 retry live here. ``replies`` stays a pure classifier; rendered degradation
-lives in ``quote_fallback`` (ADR-0037).
+lives in ``quote_fallback``.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
         )
     except TRANSIENT_ERRORS:
         # An RPCError subclass meaning "ask again later", not "no title": caching
-        # that miss degrades every later quote and hides the wait (ADR-0045).
+        # that miss degrades every later quote and hides the wait.
         raise
     except (ValueError, TypeError, telethon_errors.RPCError):
         history = None
@@ -223,7 +223,7 @@ async def _place_thread(
     top = header.reply_to_top_id
     # ``reply_to_top_id`` always names this group; ``reply_to_msg_id`` only when
     # the header carries no other peer. Walking a foreign parent id here is
-    # ADR-0036 §4's silent failure — the group has its own message under that
+    # The silent failure: the group has its own message under that
     # id, and matching an anchor re-points the reply at an unrelated post.
     peer = header.reply_to_peer_id
     root = top
@@ -385,7 +385,7 @@ def degrade_to_fallback(
 def _degraded_placement(
     plan, classified: replies.Classification, leg: AnyLeg
 ) -> int | None:
-    """Keep the thread the rejected send had already resolved (ADR-0036 §2).
+    """Keep the thread the rejected send had already resolved.
 
     ``_place_thread`` walks source anchor -> post -> destination anchor, and a
     discussion top is itself an auto-forward anchor that never enters the leg's

@@ -1,4 +1,4 @@
-"""Where a synchronous command step runs its coroutine (ADR-0124).
+"""Where a synchronous command step runs its coroutine.
 
 A `tg` process runs each one with `asyncio.run`: a fresh loop per step. `tg-serve`
 keeps one Telegram client connected across many commands, and a Telethon client

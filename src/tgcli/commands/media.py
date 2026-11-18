@@ -48,7 +48,7 @@ class MediaSource:
 
 @dataclass(frozen=True)
 class _DownloadTarget:
-    """Uniform transfer input for message media and story media (ADR-0076)."""
+    """Uniform transfer input for message media and story media."""
 
     media: object
     filename: str | None
@@ -166,7 +166,7 @@ def _document_filename(document, story_id: int) -> str:
 
 
 def _story_target(story, codec: str | None) -> _DownloadTarget:
-    """Pick the download target for a story (ADR-0076).
+    """Pick the download target for a story.
 
     Without a codec the main document downloads as-is. With one, the matching
     document is chosen from `document` + `alt_documents` by its
@@ -528,8 +528,8 @@ async def _download_target(
     if target.size is not None and current != target.size:
         # The final name means complete; a stream that ended early is not.
         # The checkpoint above already made `current` durable, so the next
-        # run resumes from here instead of restarting (ADR-0083 decision 3,
-        # mirrored from clone reupload's `download_resumable` guard).
+        # run resumes from here instead of restarting
+        # (mirrored from clone reupload's `download_resumable` guard).
         raise PolicyError(
             f"media download stopped at {current}/{target.size} bytes "
             f"for {_source_label(source)}"

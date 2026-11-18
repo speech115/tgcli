@@ -361,7 +361,7 @@ def test_media_download_rejects_over_100_ids(config_env, monkeypatch):
 
 
 def test_media_download_rejects_codec_in_bulk_mode(config_env, monkeypatch, capsys):
-    """ADR-0078: --codec is story-only; bulk mode must not silently ignore it."""
+    """--codec is story-only; bulk mode must not silently ignore it."""
     make_session_fake(monkeypatch, FakeClient())
 
     assert (

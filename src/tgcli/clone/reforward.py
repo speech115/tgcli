@@ -1,6 +1,6 @@
 """Native re-forward of a reposted post out of the source discussion group.
 
-ADR-0050 Part B. A protected channel post that is itself a forward loses its
+A protected channel post that is itself a forward loses its
 native header on the reupload path, and Part A puts a truthful text prefix in
 its place. When the linked *source* group still holds the message the post was
 reposted from, and that group is not itself protected, forwarding that message
@@ -20,7 +20,7 @@ from telethon.tl import types
 from tgcli.clone.legs import AnyLeg
 from tgcli.tg_errors import unless_refused
 
-# One messages.Search per reposted post against the ADR-0045 flood budget. The
+# One messages.Search per reposted post against the flood budget. The
 # window only has to cover the messages a single sender produced within one
 # second; candidates outside `fwd_from.date` are discarded anyway.
 SEARCH_LIMIT = 20
@@ -33,7 +33,7 @@ def eligible(leg: AnyLeg, messages, plan) -> bool:
 
     Only a lone protected broadcast repost with nothing else in flight
     qualifies. Albums are excluded — every item would need its own proof —
-    and so are snapshots, whose poll-vote replication (ADR-0048) is built on
+    and so are snapshots, whose poll-vote replication is built on
     the rendered placeholder the forward would replace.
     """
     if plan.mode != "reuploaded" or leg.source_kind != "broadcast":
@@ -135,8 +135,8 @@ def _tl_key(item):
     `KeyboardButtonCopy.copy_text` are content by any reading, and neither was
     named. Since these objects are pure values — no chat-scoped handles, unlike
     media, which is why `_media_key` stays hand-written — the whole TL dict is
-    both the simplest key and the only one that cannot go stale (ADR-0074:
-    the second leaky allowlist is a boundary question, not another field).
+    both the simplest key and the only one that cannot go stale (the
+    second leaky allowlist is a boundary question, not another field).
 
     Anything without `to_dict` is not a TL object this code understands, and a
     fresh object never equals another, so doubt declines the proof — the
@@ -157,7 +157,7 @@ def _markup_key(message):
     not carry every button class into the linked group, so a proven original
     may legitimately differ here. Forwarding it anyway would publish someone
     else's buttons under a genuine header — silently, because a native forward
-    is the one transport ADR-0085 reports nothing for. The markup object itself
+    is the one transport that reports no dropped markup. The markup object itself
     is the key, so button payloads (`copy_text`, `button_id`, `peer_types`, …)
     and the markup class both count: an inline keyboard and a reply keyboard
     with the same rows are not the same message. Deliberately not

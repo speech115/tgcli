@@ -1,4 +1,4 @@
-"""Finishing a `clone sync` that has nothing to copy (ADR-0126).
+"""Finishing a `clone sync` that has nothing to copy.
 
 A scheduled run finds nothing new almost every time, and the full run opens
 the destination, walks its tail and lists the roster to learn that. Telegram

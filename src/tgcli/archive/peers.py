@@ -1,4 +1,4 @@
-"""Unified peer-identity reads for archive explore/search (ADR-0116)."""
+"""Unified peer-identity reads for archive explore/search."""
 
 from __future__ import annotations
 

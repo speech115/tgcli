@@ -1,4 +1,4 @@
-"""Unit tests for the shared striped download / parallel upload seam (ADR-0047)."""
+"""Unit tests for the shared striped download / parallel upload seam."""
 
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ async def test_download_striped_short_stream_never_publishes_the_full_size_file(
     """`truncate(size)` pre-allocates the file, so a stream that stops without
     raising (no FloodWait, no worker exception — the server just closed the
     connection early) would otherwise leave a full-size *sparse* file that
-    looks complete (ADR-0083 decision 3, mirrored from clone's reupload
+    looks complete (mirrored from clone's reupload
     download onto the shared striped seam)."""
 
     class ShortStreamTelegram(FakeStrideTelegram):
@@ -345,7 +345,7 @@ async def test_download_striped_flood_wait_surfaces_unwrapped(tmp_path):
 
 @pytest.mark.asyncio
 async def test_download_striped_reports_progress_on_the_shared_cadence(tmp_path):
-    """ADR-0049: the striped download reports through the one shared cadence."""
+    """the striped download reports through the one shared cadence."""
 
     class MultiChunkTelegram(FakeStrideTelegram):
         async def iter_download(
@@ -377,7 +377,7 @@ async def test_download_striped_reports_progress_on_the_shared_cadence(tmp_path)
 
 @pytest.mark.asyncio
 async def test_upload_parts_reports_progress_with_uploaded_and_total_bytes(tmp_path):
-    """ADR-0049: the upload leg reports bytes through the same callback shape."""
+    """the upload leg reports bytes through the same callback shape."""
     path = tmp_path / "multi.bin"
     payload = b"z" * (512 * 1024)
     path.write_bytes(payload)
@@ -418,7 +418,7 @@ def _photo_media(*, sizes):
 
 @pytest.mark.asyncio
 async def test_download_striped_selects_largest_photo_size_not_list_order(tmp_path):
-    """ADR-0055: Telethon's _get_file_info trusts sizes[-1]; we reorder first."""
+    """Telethon's _get_file_info trusts sizes[-1]; we reorder first."""
     from telethon import utils as telethon_utils
 
     large = types.PhotoSize(type="x", w=1024, h=1024, size=50_000)
@@ -516,7 +516,7 @@ async def test_a_failing_checkpoint_never_replaces_the_flood_it_was_recording(
 ):
     """A FloodWait that unwinds into an OSError loses its retry_after.
 
-    ADR-0072's whole contract is exit 5 plus a server-issued wait; bookkeeping
+    The whole contract is exit 5 plus a server-issued wait; bookkeeping
     on the failure path must never be able to take that away (review finding).
     """
     part = tmp_path / "src-1.part"

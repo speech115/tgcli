@@ -1,4 +1,4 @@
-"""SQLite/WAL clone-state backend (ADR-0060)."""
+"""SQLite/WAL clone-state backend."""
 
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
 
 
 def test_load_rejects_seeded_invalid_meta(tmp_path, monkeypatch):
-    """Fail-closed validation still runs after a SQLite read (ADR-0060)."""
+    """Fail-closed validation still runs after a SQLite read."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
     state.save(s)
@@ -322,7 +322,7 @@ _DEST_FOR = {
 def test_duplicate_destination_in_dirty_save_is_policy_error(
     table, tmp_path, monkeypatch
 ):
-    """ADR-0060 UNIQUE(dest) guard: ``INSERT OR REPLACE`` resolves a
+    """UNIQUE(dest) guard: ``INSERT OR REPLACE`` resolves a
     UNIQUE(dest) collision by silently deleting the row that already held
     that destination — recording dest=100 for a new source when source=1
     already owns dest=100 must fail loudly (PolicyError) and roll back,

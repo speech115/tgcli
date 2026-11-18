@@ -257,7 +257,7 @@ def test_an_empty_or_broken_script_fails_before_any_session(tmp_path, monkeypatc
 
 
 def test_reads_that_only_look_like_reads_are_refused(tmp_path, monkeypatch):
-    """ADR-0010: these getters have side effects or touch credentials."""
+    """these getters have side effects or touch credentials."""
     client, path = setup(
         tmp_path,
         monkeypatch,
@@ -343,7 +343,7 @@ def test_every_method_tg_run_lets_through_as_a_read_was_reviewed():
 
 
 def test_root_session_requests_are_denied_even_with_the_flag(tmp_path, monkeypatch):
-    """DestroyAuthKey/DestroySession end the session like a logout (ADR-0092)."""
+    """DestroyAuthKey/DestroySession end the session like a logout."""
     for script in (
         "await client(functions.DestroyAuthKeyRequest())\n",
         "await client(functions.DestroySessionRequest(session_id=1))\n",

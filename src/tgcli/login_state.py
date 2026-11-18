@@ -1,4 +1,4 @@
-"""Login-attempt state under `logins/` (ADR-0042).
+"""Login-attempt state under `logins/`.
 
 A login attempt is not a preview: it owns a staged session and optional
 `phone_code_hash`, and it is the only writer that may promote into
@@ -30,12 +30,10 @@ def _write_attempt(path: Path, record: dict) -> None:
     concurrent `store cleanup --confirm` and take the staged session with it.
     """
     if "phone" in record:
-        # ADR-0042 §5: the attempt json holds alias/phone_code_hash/
+        # The attempt json holds alias/phone_code_hash/
         # created_at, never the phone. A regression here would put the raw
         # phone back on disk for the whole 30-minute TTL (T08).
-        raise AssertionError(
-            "login attempt record must not persist a raw phone (ADR-0042/0088)"
-        )
+        raise AssertionError("login attempt record must not persist a raw phone")
     atomic.replace_text(path, json.dumps(record))
 
 
@@ -128,7 +126,7 @@ def load_phone(login_id: str) -> str | None:
     """Read the restricted phone sidecar, if any.
 
     Telegram requires the literal phone again for `auth.SignInRequest`; the
-    staged Telethon session does not retain it (ADR-0093).
+    staged Telethon session does not retain it.
     """
     path = _phone_path(login_id)
     if not path.is_file():

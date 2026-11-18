@@ -1,7 +1,7 @@
 """Clone batch send execution: forward, snapshot, and reupload orchestration.
 
 RPC send orchestration for a synced batch lives here so the command module
-reads as sync glue rather than transfer mechanics (ADR-0112).
+reads as sync glue rather than transfer mechanics.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class RunPace:
 
     def __init__(self) -> None:
         # One slot for every send: Telegram counts the messages that land,
-        # whichever method put them there (ADR-0122).
+        # whichever method put them there.
         self.send = pace.Pace(pace.SEND_INTERVAL_S)
         self.media = pace.Pace(pace.MEDIA_INTERVAL_S)
 
@@ -475,7 +475,7 @@ async def forward_batch(
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
-    # ADR-0050 Part B: a proven original outranks the Part A prefix, because
+    # A proven original outranks the Part A prefix, because
     # forwarding it carries Telegram's own header instead of describing one.
     proven = None
     if reforward_cache is not None and reforward.eligible(leg, messages, plan):
@@ -609,7 +609,6 @@ async def forward_batch(
     if mode == "reuploaded":
         # Only a confirmed send *and* a durable mapping save may clear the
         # cache — an incomplete confirmation or a crash before the save
-        # must leave the downloaded bytes for the next run's resume
-        # (ADR-0052; T12).
+        # must leave the downloaded bytes for the next run's resume.
         shutil.rmtree(reupload.cache_dir(clone_state), ignore_errors=True)
     return len(source_ids), mode, plan.reply_flattened, plan.quote_flattened

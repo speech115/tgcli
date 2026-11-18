@@ -1,4 +1,4 @@
-"""Best-effort source-side participant snapshot for a clone (ADR-0024).
+"""Best-effort source-side participant snapshot for a clone.
 
 Runs at the end of `sync`, after message copying, and records who is in the
 source channel and its linked discussion group where Telegram permits. Access

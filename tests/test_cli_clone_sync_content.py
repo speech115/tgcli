@@ -206,7 +206,7 @@ def test_clone_sync_poll_without_breakdown_casts_and_retracts_vote(
 
 def test_clone_sync_no_send_blocks_before_reaching_a_poll(monkeypatch):
     """TGCLI_NO_SEND cannot let a poll vote slip through, because it stops
-    the whole sync in preflight (ADR-0048 §4). The renderer's own gate is a
+    the whole sync in preflight. The renderer's own gate is a
     second line of defence, unit-tested in test_clone_snapshot.py."""
     from tgcli import cli
 
@@ -448,7 +448,7 @@ def test_clone_sync_reports_a_lost_keyboard_before_a_flood_ends_the_run(
 ):
     """A flood mid-run skips the result document, but the copy it already made
     is permanent and is never revisited — so the loss has to be on stderr by
-    the time the run dies, not only in the tail (ADR-0085 review finding)."""
+    the time the run dies, not only in the tail."""
     clone_state = seed_clone()
 
     class FloodAfterFirstSend(CloneReuploadClient):

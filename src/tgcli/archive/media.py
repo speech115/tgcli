@@ -1,4 +1,4 @@
-"""Archive media paths and bounded acquisition retry state (ADR-0068)."""
+"""Archive media paths and bounded acquisition retry state."""
 
 from __future__ import annotations
 

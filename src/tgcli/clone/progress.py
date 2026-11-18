@@ -1,4 +1,4 @@
-"""Plain single-line `clone sync` progress on stderr (ADR-0049).
+"""Plain single-line `clone sync` progress on stderr.
 
 The lines are informative, not contract data: stdout stays exactly one JSON
 document and these are free text on stderr, safe to silence with `2>/dev/null`.
@@ -63,7 +63,7 @@ def comments_unstarted(clone_state) -> bool:
     loud instead of leaving the operator to infer it from `discussion_cursor`.
 
     Returns whether the warning was written, so a single run does not repeat
-    it. Informative stderr only (ADR-0049), never contract data.
+    it. Informative stderr only, never contract data.
     """
     if clone_state.comments != Comments.ENABLED:
         return False
@@ -99,11 +99,11 @@ class SyncProgress:
         """Fetch `~total` once per entity, lazily, on the first batch reported.
 
         A sync with nothing to copy spends no RPC on a cosmetic number — the
-        idle keep-up-to-date call stays as cheap as it was (ADR-0045). Per
-        *entity*, not per phase: ADR-0051 re-enters each leg once per window,
+        idle keep-up-to-date call stays as cheap as it was. Per
+        *entity*, not per phase: the interleave re-enters each leg once per window,
         and re-asking would put one extra GetHistory-family request per
         window on the wire for a number already known — the request family
-        the ADR-0072 incident was made of (review finding).
+        an earlier incident was made of.
         """
         if self._total_resolved:
             return

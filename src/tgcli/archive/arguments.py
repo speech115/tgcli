@@ -1,4 +1,4 @@
-"""Argument grammar owned by the `tg archive` subsystem (ADR-0115)."""
+"""Argument grammar owned by the `tg archive` subsystem."""
 
 from tgcli.messages import MEDIA_KINDS
 
@@ -6,7 +6,7 @@ from tgcli.messages import MEDIA_KINDS
 def add_to(sub, global_flags) -> None:
     parser = sub.add_parser(
         "archive",
-        help="Local archive store (ADR-0068)",
+        help="Local archive store",
         parents=[global_flags],
     )
     commands = parser.add_subparsers(dest="archive_command", required=True)

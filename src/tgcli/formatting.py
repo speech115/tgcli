@@ -25,7 +25,7 @@ from tgcli.errors import PolicyError
 
 FORMATS = ("plain", "md", "html")
 
-# Everything ADR-0030 and docs/CONTRACT.md document for --format html. Anything
+# Everything docs/CONTRACT.md documents for --format html. Anything
 # else parses as markup and is silently deleted from the body, so it is an
 # error: the operator approved a preview of the full text.
 SUPPORTED_HTML_TAGS = frozenset(
@@ -135,7 +135,7 @@ def render(text: str, fmt: str | None):
 
 
 def mask_phone(phone: str | None) -> str:
-    """Redact a phone for JSON, plain, stderr, and audit (ADR-0042)."""
+    """Redact a phone for JSON, plain, stderr, and audit."""
     if not phone:
         return ""
     if len(phone) <= 4:

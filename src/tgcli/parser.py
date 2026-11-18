@@ -53,7 +53,7 @@ def _global_flags() -> _Parser:
         "--session-role",
         dest="session_role",
         metavar="NAME",
-        help="named session role beside the primary (ADR-0062)",
+        help="named session role beside the primary",
     )
     global_flags.add_argument("--json", action="store_true", help="JSON to stdout")
     global_flags.add_argument("--plain", action="store_true", help="TSV to stdout")
@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--role",
         dest="login_role",
         metavar="NAME",
-        help="authorize a named session role beside the primary (ADR-0062)",
+        help="authorize a named session role beside the primary",
     )
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])

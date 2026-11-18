@@ -1,4 +1,4 @@
-"""Offline archive FTS5 MATCH helpers (ADR-0068)."""
+"""Offline archive FTS5 MATCH helpers."""
 
 from __future__ import annotations
 

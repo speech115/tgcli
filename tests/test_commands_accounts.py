@@ -1,4 +1,4 @@
-"""Offline account lifecycle: show and remove (ADR-0042 Slice 1)."""
+"""Offline account lifecycle: show and remove."""
 
 from __future__ import annotations
 

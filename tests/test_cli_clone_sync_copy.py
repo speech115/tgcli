@@ -262,7 +262,7 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
 def test_clone_sync_reuploads_protected_broadcast_repost_with_forward_prefix(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0050: protected broadcast post with fwd_from gets Переслано от + mention."""
+    """protected broadcast post with fwd_from gets Переслано от + mention."""
     seed_clone()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
     client = CloneReuploadClient(

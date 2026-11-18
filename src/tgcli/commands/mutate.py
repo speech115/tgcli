@@ -1,4 +1,4 @@
-"""Preview-to-commit mutations on existing messages (ADR-0028)."""
+"""Preview-to-commit mutations on existing messages."""
 
 from telethon.errors import MessageNotModifiedError
 

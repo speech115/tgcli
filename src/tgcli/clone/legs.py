@@ -9,7 +9,7 @@ from typing import ClassVar, Literal
 from tgcli.clone import state
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
 
-# ADR-0051: posts/comments interleave in fixed windows (not a flag).
+# posts/comments interleave in fixed windows (not a flag).
 WINDOW = 50
 
 LegKind = Literal["posts", "discussion"]

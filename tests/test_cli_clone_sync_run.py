@@ -404,7 +404,7 @@ def progress_lines(stderr: str) -> list[str]:
 
 
 def test_sync_reports_batch_progress_on_stderr(config_env, monkeypatch, capsys):
-    """ADR-0049: a batch line names the running count and its transport."""
+    """a batch line names the running count and its transport."""
     seed_clone()
     client = CloneSyncClient([message(2), message(3)])
     make_session_fake(monkeypatch, client)
@@ -437,7 +437,7 @@ def test_sync_progress_counts_continue_from_earlier_runs(
 def test_sync_json_mode_emits_progress_without_touching_stdout(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0049: --json gets the same stderr lines; stdout stays one document."""
+    """--json gets the same stderr lines; stdout stays one document."""
     seed_clone()
     client = CloneSyncClient([message(2)])
     make_session_fake(monkeypatch, client)
@@ -523,7 +523,7 @@ def test_sync_reports_transfer_bytes_while_reuploading(config_env, monkeypatch, 
 def test_sync_progress_lines_carry_no_control_characters(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0049: plain lines only — safe in a log file and an agent transcript."""
+    """plain lines only — safe in a log file and an agent transcript."""
     seed_clone()
     client = CloneSyncClient([message(2), message(3)])
     make_session_fake(monkeypatch, client)
@@ -585,7 +585,7 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
 def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0045: an idle keep-up-to-date sync must not spend an extra RPC."""
+    """an idle keep-up-to-date sync must not spend an extra RPC."""
     clone_state = seed_clone()
     clone_state.record_mapping(2, 1)
     clone_state.cursor = 2
@@ -747,7 +747,7 @@ def test_sync_short_flood_wait_exits_5_without_foreground_retry(
 def test_clone_sync_spaces_sends_past_the_first_five(
     config_env, monkeypatch, capsys, pace_clock
 ):
-    """Twenty sends a minute, in one slot for the whole run (ADR-0122)."""
+    """Twenty sends a minute, in one slot for the whole run."""
     seed_clone()
     client = CloneSyncClient([message(index) for index in range(2, 9)])
     make_session_fake(monkeypatch, client)

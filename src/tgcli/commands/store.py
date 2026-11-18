@@ -1,4 +1,4 @@
-"""Inspect and clean local tgcli state (ADR-0040). Offline only."""
+"""Inspect and clean local tgcli state. Offline only."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ _FILE_SCAN_REGISTRY = (
     (("archive", "shm"), "archive", "*/archive.db-shm"),
 )
 # Previews and logins carry `expires_at`, so a live record is never eligible
-# whatever the flags say. A clone media cache (ADR-0052) carries no TTL, so
+# whatever the flags say. A clone media cache carries no TTL, so
 # this floor is the whole liveness gate: below it the cache belongs to a
 # `clone sync` that is running right now, and nothing may delete it.
 MEDIA_CACHE_MIN_AGE = timedelta(hours=1)
@@ -317,7 +317,7 @@ def _any_session_lock_held(root: Path) -> bool:
 
     A clone media cache carries no TTL and nothing writes to it during a long
     upload-only phase, so its mtime ages past `MEDIA_CACHE_MIN_AGE` while the
-    batch that owns it is still running (ADR-0052). The run does hold its
+    batch that owns it is still running. The run does hold its
     account session lock from the first request to the last, so that lock is
     the liveness signal the cache itself cannot provide. Coarse on purpose:
     cleanup would rather keep a dead cache than delete a live one.
@@ -386,7 +386,7 @@ def _deletable_paths(
         # lock vetoes every cache: some tg run may own one of them.
         if caches and not _any_session_lock_held(root):
             for path in caches:
-                # No expires_at — age is always mtime (ADR-0052 media cache).
+                # No expires_at — age is always mtime.
                 anchor = _media_cache_anchor(path)
                 if anchor is None or now - anchor < floor:
                     continue

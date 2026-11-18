@@ -41,7 +41,7 @@ class ExportError(TgcliError):
 
 
 class PartialFailure(TgcliError):
-    """Command produced a result document but should exit nonzero (ADR-0032)."""
+    """Command produced a result document but should exit nonzero."""
 
     code = "PARTIAL"
 

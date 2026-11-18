@@ -1,4 +1,4 @@
-"""Change-feed engine tests (ADR-0063): archive sync runs on this engine."""
+"""Change-feed engine tests: archive sync runs on this engine."""
 
 from __future__ import annotations
 

@@ -220,7 +220,7 @@ class CloneSyncClient:
 
     async def get_messages(self, entity, limit=None):
         if entity is self.source:
-            # ADR-0049: sync asks the source for its approximate total once.
+            # sync asks the source for its approximate total once.
             return SimpleNamespace(total=len(self.messages))
         assert entity is self.destination
         return [
@@ -645,7 +645,7 @@ def discussion(*, id_map=None, discussion_id_map=None, source_peer_id=2):
 def _inline_keyboard():
     """A bot keyboard mixing a URL row with a callback row, as a channel post
     carries it: the URL row is the only class Telegram ever re-renders on a
-    forward, and neither class survives a reupload (ADR-0085)."""
+    forward, and neither class survives a reupload."""
     return types.ReplyInlineMarkup(
         rows=[
             types.KeyboardButtonRow(

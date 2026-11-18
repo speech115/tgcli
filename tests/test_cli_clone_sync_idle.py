@@ -1,5 +1,5 @@
 """clone sync: ending early when nothing is new, and remembering a long flood
-in the clone (ADR-0126)."""
+in the clone."""
 
 import json
 import os

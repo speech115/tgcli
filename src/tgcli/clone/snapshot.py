@@ -1,4 +1,4 @@
-"""Render truthful text snapshots for polls and stories (ADR-0019 / ADR-0048)."""
+"""Render truthful text snapshots for polls and stories."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def _results_from_updates(updates) -> types.PollResults | None:
 
 
 class _RetractFailed(Exception):
-    """Internal: the retract failed after warning; the vote stands (ADR-0048)."""
+    """Internal: the retract failed after warning; the vote stands."""
 
 
 async def _capture_breakdown(
@@ -124,8 +124,7 @@ async def _capture_breakdown(
 
     async def retract_vote() -> None:
         # A FloodWait is not special here: propagating it would kill the run
-        # before the poll_votes tail and leave the vote standing silently
-        # (ADR-0048 decisions 2/4).
+        # before the poll_votes tail and leave the vote standing silently.
         try:
             await tg(retract)
         except (telethon_errors.RPCError, OSError) as exc:

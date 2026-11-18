@@ -18,7 +18,7 @@ clone refused. After every run:
   leg's send intent names it, and otherwise makes every later run exit 2
   before it copies into that chat (L2), until the owner repairs the tail;
 - a run that fails exits as its fault says: 5 for a flood of either kind;
-- a run that ended in a flood remembers it (ADR-0126): every run before its
+- a run that ended in a flood remembers it: every run before its
   wait is over exits 5 and asks Telegram for nothing.
 
 And whenever the faults stop, one clean run finishes the clone: every post

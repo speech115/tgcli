@@ -2,8 +2,7 @@
 
 Everything a reuploaded batch needs to turn a source message into
 `InputMediaUploaded*` bytes on disk and back, kept out of the command module
-so the sync path reads as decisions rather than transfer mechanics
-(ADR-0049/0052/0055).
+so the sync path reads as decisions rather than transfer mechanics.
 """
 
 from __future__ import annotations
@@ -139,7 +138,7 @@ async def uploaded_media(tg, message, path, progress=None):
 
 
 def cache_dir(clone_state: state.CloneState) -> Path:
-    """Per-clone reupload download cache (ADR-0052). Survives a failed batch."""
+    """Per-clone reupload download cache. Survives a failed batch."""
     return state.clones_dir() / f"{clone_state.clone_id}-media"
 
 
@@ -153,7 +152,7 @@ def complete_marker(target: Path) -> Path:
 
     Size alone cannot prove it: a pre-fix binary killed mid-stripe left a
     full-size sparse file at the final name, which the reuse check would
-    upload as if it were the real media (ADR-0052 cache survives runs).
+    upload as if it were the real media.
     """
     return target.with_name(f"{target.name}.done")
 
@@ -231,12 +230,12 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
     if size is not None and size > CHUNK_SIZE:
         # Stream into a sibling .part and rename, as `media download` does:
         # the final name must mean "complete", or a killed run leaves a
-        # full-size sparse file the reuse check would upload as real media
-        # (ADR-0052). The stream is serial and checkpointed rather than
+        # full-size sparse file the reuse check would upload as real media.
+        # The stream is serial and checkpointed rather than
         # striped, so a FloodWait costs the current chunk instead of the
-        # whole file (ADR-0083 superseding ADR-0047's download leg).
+        # whole file.
         # Only this path reports bytes: a sub-chunk file is over before it
-        # could reach a progress mark (ADR-0049).
+        # could reach a progress mark.
         part = target.with_name(f"{target.name}.part")
         media_id = media_identity(message.media)
         offset = resume_offset(part, size, media_id)

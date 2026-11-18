@@ -220,7 +220,7 @@ async def test_download_throttles_state_writes_and_progress_updates(
 async def test_download_never_publishes_a_short_stream(tmp_path):
     """The final name means complete; a stream that ends early is not.
 
-    Mirrors clone reupload's `download_resumable` guard (ADR-0083 decision 3):
+    Mirrors clone reupload's `download_resumable` guard:
     the serial loop must require `current == size` before `_publish`, not
     just when an exception unwinds the transfer.
     """
@@ -241,7 +241,7 @@ async def test_download_never_publishes_a_short_stream(tmp_path):
 async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
     tmp_path, monkeypatch
 ):
-    """ADR-0091: bookkeeping on the failure path must not erase FloodWait."""
+    """bookkeeping on the failure path must not erase FloodWait."""
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
     fake = FakeDownloadTelegram([])

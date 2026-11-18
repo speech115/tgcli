@@ -1,4 +1,4 @@
-"""`tg archive` surface (ADR-0068)."""
+"""`tg archive` surface."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Selected-dialog archive backfill (ADR-0068 Phase 1)."""
+"""Selected-dialog archive backfill."""
 
 from __future__ import annotations
 

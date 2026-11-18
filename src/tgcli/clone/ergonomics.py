@@ -1,4 +1,4 @@
-"""Mute and 'Clone' folder ergonomics for tool-created peers (ADR-0046)."""
+"""Mute and 'Clone' folder ergonomics for tool-created peers."""
 
 from __future__ import annotations
 

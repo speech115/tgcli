@@ -1,4 +1,4 @@
-"""Preview and replay the intentional Telegram send surface (ADR-0028)."""
+"""Preview and replay the intentional Telegram send surface."""
 
 import hashlib
 import mimetypes

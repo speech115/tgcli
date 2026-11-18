@@ -1,4 +1,4 @@
-"""Foreground local Parakeet transcription queue (ADR-0068 Phase 4)."""
+"""Foreground local Parakeet transcription queue."""
 
 from __future__ import annotations
 

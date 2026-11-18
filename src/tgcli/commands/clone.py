@@ -1,4 +1,4 @@
-"""Copy supported Telegram chats into user-owned channels (ADR-0017/0021)."""
+"""Copy supported Telegram chats into user-owned channels."""
 
 import secrets
 
@@ -23,7 +23,7 @@ from tgcli.tg_errors import unless_refused
 
 
 def _entry(s: state.CloneState, slot_id: str) -> dict:
-    """``slot_id`` is the file the state was read from: a pre-ADR-0103 slot
+    """``slot_id`` is the file the state was read from: a pre-kind-aware slot
     keeps its kind-blind name until the next init/sync migrates it."""
     probe = state.probe(slot_id)
     return {

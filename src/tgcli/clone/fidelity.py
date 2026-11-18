@@ -25,7 +25,7 @@ def dropped_buttons(message) -> list[dict] | None:
     out of reach even in principle. Only a native forward keeps the rows, and
     that path is closed to a protected source. The buttons are reported so the
     loss is visible, and never reconstructed — a rebuilt callback row would
-    claim a bot's behaviour the clone cannot honour (ADR-0085).
+    claim a bot's behaviour the clone cannot honour.
     """
     rows = getattr(getattr(message, "reply_markup", None), "rows", None) or ()
     buttons = [

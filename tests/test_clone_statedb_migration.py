@@ -1,4 +1,4 @@
-"""SQLite schema migrations (ADR-0060)."""
+"""SQLite schema migrations."""
 
 from __future__ import annotations
 

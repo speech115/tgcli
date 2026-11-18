@@ -14,7 +14,7 @@ SCHEMA_VERSION = 12
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
-# Explicitly pin archive contention behavior (ADR-0096); do not inherit the
+# Explicitly pin archive contention behavior; do not inherit the
 # driver's timeout default.
 BUSY_TIMEOUT_MS = 5_000
 

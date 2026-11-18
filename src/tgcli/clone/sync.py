@@ -1,9 +1,9 @@
 """`clone sync`: copy new source posts and comments into the destination.
 
-The run behind `tg clone sync` (ADR-0017/0021): it checks the recorded
-destination, alternates the posts and comments legs (ADR-0051), carries pins
+The run behind `tg clone sync`: it checks the recorded
+destination, alternates the posts and comments legs, carries pins
 over and lists the roster, then reports the sync document. A run with nothing
-new finishes early (ADR-0126, `clone.idle`), and one that ends in a FloodWait
+new finishes early, and one that ends in a FloodWait
 it cannot ride out remembers it in the clone, so the next run asks nothing of
 Telegram until it has passed.
 
@@ -331,12 +331,12 @@ class _Run:
         if clone_state.comments != Comments.ENABLED:
             await self.run_posts_window(None)
             return
-        # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
+        # alternate posts×WINDOW with comments until both exhaust.
         # Enter comments only while --limit budget remains; a limit hit during
         # posts ends the run (same as today for limit < WINDOW).
         while not self.more and not pace.exhausted():
             # Each interleaved window re-announces its leg so the counters
-            # belong to the leg that is running (ADR-0051 interleave, #174).
+            # belong to the leg that is running.
             self.progress.phase("posts", copied=len(clone_state.id_map))
             self.posts_waiting = False
             ran = await self.run_posts_window(legs.WINDOW)
@@ -359,7 +359,7 @@ class _Run:
             if self.posts_exhausted:
                 break
             if clone_state.comments != Comments.ENABLED:
-                # The group refused mid-run and comments degraded (ADR-0061):
+                # The group refused mid-run and comments degraded:
                 # the remaining posts copy alone.
                 self.comments_stalled = True
                 await self.run_posts_window(None)
@@ -513,7 +513,7 @@ class _Run:
         self.transport_counts[mode] += batch_copied
         # Only a native forward carries a keyboard; every other transport
         # rebuilds the message and Telegram will not let a user account
-        # reattach one, so the rows are recorded as lost (ADR-0085). Every
+        # reattach one, so the rows are recorded as lost. Every
         # loss is announced as it happens, not in the tail: the copy is
         # already permanent and never revisited, and the run that dies on a
         # flood mid-way leaves no result document to carry the rest.
@@ -548,7 +548,7 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
     # A run the cap stopped stopped early: no pin phase and no roster listing
     # (the CLI contract), and `remaining` reflects the copy, not later phases.
     capped = pace.exhausted()
-    # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
+    # pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
     if not run.forum:
         if not more and not capped:
@@ -602,7 +602,7 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
         )
     if capped and not more:
         # --max-runtime exhausted: a normal stop, not an error — the cursor
-        # advanced and the next invocation resumes (ADR-0107).
+        # advanced and the next invocation resumes.
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
         data["resume"] = {"cursor": clone_state.cursor}
     return data

@@ -1,4 +1,4 @@
-"""Story media download tests (ADR-0076): links, resolution, codecs, output."""
+"""Story media download tests: links, resolution, codecs, output."""
 
 import json
 
@@ -267,7 +267,7 @@ async def test_resolve_story_missing_codec_raises():
 
 
 async def test_resolve_photo_story_with_codec_raises():
-    """ADR-0076: `--codec` on a non-video story reports the missing encoding
+    """`--codec` on a non-video story reports the missing encoding
     instead of silently downloading the photo."""
     fake = StoryTelegram(make_photo_story(937))
 

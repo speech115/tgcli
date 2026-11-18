@@ -1,4 +1,4 @@
-"""Unit tests for poll/story snapshot rendering (ADR-0019 / ADR-0048)."""
+"""Unit tests for poll/story snapshot rendering."""
 
 from __future__ import annotations
 
@@ -313,7 +313,7 @@ async def test_render_retract_failure_marks_loud_outcome(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch):
-    """Cast without UpdateMessagePoll still retracts and degrades (ADR-0048)."""
+    """Cast without UpdateMessagePoll still retracts and degrades."""
     notes = []
     audits = []
     monkeypatch.setattr(
@@ -355,7 +355,7 @@ async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch
 async def test_render_retract_flood_wait_is_disclosed_not_propagated(monkeypatch):
     """A FloodWait on the retract leaves a standing vote — it must be disclosed.
 
-    Propagating it would kill the run before the poll_votes tail, so ADR-0048
+    Propagating it would kill the run before the poll_votes tail, so the run
     decisions 2/4 would be broken silently: the next run sees a breakdown
     (the vote is still cast) and never retries the retract.
     """
