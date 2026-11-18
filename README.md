@@ -12,7 +12,7 @@
 
 A stateless Telegram client built on [`telethon`](https://github.com/LonamiWebs/Telethon). Signs in as your own user account over MTProto, does exactly one operation per invocation, and gives you JSON-first reading, search, media, export, and preview → commit correspondence from the command line — for humans, scripts, and AI agents alike.
 
-> Third-party tool. Uses the MTProto user API via `telethon`. Not affiliated with Telegram. No background daemon: every `tg` command is a foreground process that exits, and `tg-serve` / `tg-mcp` hold a session only while their caller runs.
+> Third-party tool. Uses the MTProto user API via `telethon`. Not affiliated with Telegram. No background daemon: every `tg` command is a foreground process that exits, and `tg-serve` holds a session only while its caller runs.
 
 ## Features
 
@@ -23,7 +23,6 @@ A stateless Telegram client built on [`telethon`](https://github.com/LonamiWebs/
 - **Clone**: copy channels, groups, forums and private dialogs into owned destinations, with comments, pins and protected-content reupload.
 - **Archive**: a per-account SQLite store kept current by `archive sync`, with local voice transcription and offline search.
 - **Scripts**: `tg run SCRIPT` for anything without a command; read-only unless `--write`, refused entirely in readonly mode.
-- **MCP**: `tg-mcp` serves read-only tools to agents without a shell ([docs/MCP.md](docs/MCP.md)).
 
 ## Install
 
@@ -109,7 +108,6 @@ Chat references accept `@username`, a `t.me/` link, or a numeric dialog id. `--j
 | [SKILL.md](SKILL.md) | every task mapped to its command, plus recipes for paging, catch-up, and retrying a send |
 | [docs/CONTRACT.md](docs/CONTRACT.md) | invocation, streams, exit codes, floods and the journal |
 | `tg COMMAND --help` | every flag of one command |
-| [docs/MCP.md](docs/MCP.md) | the read-only MCP adapter for agents without a shell |
 | [Operations](#operations) | running it on a schedule, shipping `main`, what to do when it breaks |
 | [AGENTS.md](AGENTS.md) | the rules for changing this repository |
 
