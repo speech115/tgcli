@@ -228,9 +228,9 @@ def write_account_sync(
 ) -> str | None:
     """Update only the named account_sync columns; return the stored cursor.
 
-    A None argument leaves its column alone; `clear_gap` sets its to NULL. The read of the stored cursor
-    and the write share one IMMEDIATE transaction, so there is no stale
-    read-modify-write window.
+    A None argument leaves its column alone; `clear_gap` sets its to NULL.
+    The read of the stored cursor and the write share one IMMEDIATE
+    transaction, so there is no stale read-modify-write window.
     """
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
