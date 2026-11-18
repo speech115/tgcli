@@ -22,7 +22,7 @@ from tgcli.tg_errors import TRANSIENT_ERRORS
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
-    download_resumable,
+    download_resumable_windowed,
     keep_proven_bytes,
     media_byte_size,
     media_identity,
@@ -231,20 +231,21 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
         # Stream into a sibling .part and rename, as `media download` does:
         # the final name must mean "complete", or a killed run leaves a
         # full-size sparse file the reuse check would upload as real media.
-        # The stream is serial and checkpointed rather than
-        # striped, so a FloodWait costs the current chunk instead of the
-        # whole file.
+        # Four chunk requests run at once (TDLib's non-Premium budget per
+        # DC), but only the contiguous prefix is checkpointed, so a FloodWait
+        # costs the chunks in flight instead of the whole file.
         # Only this path reports bytes: a sub-chunk file is over before it
         # could reach a progress mark.
         part = target.with_name(f"{target.name}.part")
         media_id = media_identity(message.media)
         offset = resume_offset(part, size, media_id)
-        written = await download_resumable(
+        written = await download_resumable_windowed(
             tg,
             message.media,
             part,
             offset=offset,
             size=size,
+            parallel=CLONE_TRANSFER_PARALLEL,
             checkpoint=lambda current: _write_checkpoint(part, size, media_id, current),
             progress=clone_progress.transfer_of(progress, message, "download"),
             should_stop=pace.exhausted,

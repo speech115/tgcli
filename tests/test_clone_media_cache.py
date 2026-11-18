@@ -119,7 +119,7 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
                     self.flooded = True
                     raise telethon_errors.FloodWaitError(request=None, capture=1)
                 chunk = b"N" * min(request_size or CHUNK_SIZE, size - position)
-                position += len(chunk)
+                position += kw.get("stride") or len(chunk)
                 yield chunk
 
     class Progress:
@@ -132,7 +132,9 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
     await reupload.download_for_reupload(tg, msg, cache, progress=Progress())
 
     # First run reports its two chunks, the second picks up at the third.
-    assert seen == [
+    # Parallel streams may repeat a mark; the marks never go backwards.
+    assert seen == sorted(seen)
+    assert sorted(set(seen)) == [
         (CHUNK_SIZE, size),
         (2 * CHUNK_SIZE, size),
         (3 * CHUNK_SIZE, size),
@@ -158,7 +160,8 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
             raise AssertionError("large media must stream")
 
         async def iter_download(self, media, *, offset=0, request_size=None, **kw):
-            yield b"N" * CHUNK_SIZE
+            if offset == 0:
+                yield b"N" * CHUNK_SIZE
 
     with pytest.raises(PolicyError, match="stopped at"):
         await reupload.download_for_reupload(ShortTg(), msg, cache)
@@ -197,14 +200,16 @@ async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
             position = offset
             while position < size:
                 chunk = b"N" * min(request_size or CHUNK_SIZE, size - position)
-                position += len(chunk)
+                position += kw.get("stride") or len(chunk)
                 yield chunk
 
     await reupload.download_for_reupload(
         Tg(), _sized_video(2, size=size, document_id=222), cache
     )
 
-    assert offsets == [2 * CHUNK_SIZE]
+    # Each stream starts at or past the checkpoint; nothing before it is
+    # fetched again.
+    assert min(offsets) == 2 * CHUNK_SIZE
 
 
 class StreamingReuploadClient(CloneReuploadClient):

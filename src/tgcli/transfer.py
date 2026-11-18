@@ -279,6 +279,112 @@ async def download_resumable(
     return current
 
 
+class _StopRequested(Exception):
+    """A worker saw ``should_stop``; the windowed download ends cleanly."""
+
+
+async def download_resumable_windowed(
+    tg,
+    media,
+    part: Path,
+    *,
+    offset: int,
+    size: int,
+    parallel: int,
+    checkpoint: Callable[[int], None],
+    progress: Callable[[int, int | None], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> int:
+    """:func:`download_resumable` with ``parallel`` chunk requests in flight.
+
+    Workers stride over the chunks after ``offset`` on one exported sender
+    (Telethon borrows a single connection per DC) and write each chunk at its
+    own offset. Only the contiguous prefix of finished chunks is ever
+    checkpointed, so the resume contract is the serial one: the next run
+    truncates the part file to the checkpoint and fetches the rest again. A
+    flood or any other error on one worker cancels the others, records the
+    prefix and re-raises, so every stream pauses together.
+    """
+    if offset % CHUNK_SIZE:
+        # A checkpoint inside a chunk cannot seed the stride; stay serial.
+        return await download_resumable(
+            tg,
+            media,
+            part,
+            offset=offset,
+            size=size,
+            checkpoint=checkpoint,
+            progress=progress,
+            should_stop=should_stop,
+        )
+    ensure_parent_dir(part)
+    descriptor = os.open(part, os.O_WRONLY | os.O_CREAT, 0o600)
+    restrict_file(part)
+    os.ftruncate(descriptor, offset)
+    remaining_chunks = max(1, (size - offset + CHUNK_SIZE - 1) // CHUNK_SIZE)
+    workers = max(1, min(parallel, remaining_chunks))
+    stride = workers * CHUNK_SIZE
+    finished: dict[int, int] = {}
+    prefix = offset
+    chunks_since_checkpoint = 0
+    chunks_since_progress = 0
+
+    def record() -> None:
+        os.fsync(descriptor)
+        checkpoint(prefix)
+
+    async def worker(index: int) -> None:
+        nonlocal prefix, chunks_since_checkpoint, chunks_since_progress
+        position = offset + index * CHUNK_SIZE
+        if position >= size:
+            return
+        async for chunk in tg.iter_download(
+            media, offset=position, stride=stride, request_size=CHUNK_SIZE
+        ):
+            data = bytes(chunk)
+            if not data:
+                return
+            os.pwrite(descriptor, data, position)
+            finished[position] = len(data)
+            while prefix in finished:
+                prefix += finished.pop(prefix)
+            chunks_since_checkpoint += 1
+            chunks_since_progress += 1
+            if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
+                record()
+                chunks_since_checkpoint = 0
+            if progress is not None and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
+                progress(prefix, size)
+                chunks_since_progress = 0
+            if should_stop is not None and should_stop():
+                raise _StopRequested
+            position += stride
+            if position >= size or len(data) < CHUNK_SIZE:
+                return
+
+    try:
+        try:
+            await _run_workers(worker(index) for index in range(workers))
+        except _StopRequested:
+            pass
+    except BaseException:
+        # As in the serial loop: bookkeeping never replaces the error.
+        with contextlib.suppress(Exception):
+            record()
+        raise
+    finally:
+        with contextlib.suppress(Exception):
+            # Bytes past the prefix are unproven; drop them so the part file
+            # and its checkpoint agree.
+            os.ftruncate(descriptor, prefix)
+        os.close(descriptor)
+    with open(part, "rb+") as handle:
+        _record(handle, checkpoint, prefix)
+    if progress is not None and chunks_since_progress:
+        progress(prefix, size)
+    return prefix
+
+
 async def upload_parts(
     tg,
     path: Path | str,

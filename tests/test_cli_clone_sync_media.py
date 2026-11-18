@@ -335,6 +335,47 @@ def test_clone_sync_never_reuploads_after_a_transient_reference_send_failure(
     assert state.load(clone_state.clone_id).dest_for(2) is None
 
 
+def test_clone_sync_downloads_large_media_in_four_parallel_streams(
+    config_env, monkeypatch, capsys
+):
+    """Four chunk requests in flight, strided over the file, and the
+    reassembled bytes are what gets uploaded."""
+    from tgcli.transfer import CHUNK_SIZE
+
+    seed_clone()
+    size = 8 * CHUNK_SIZE
+    document = types.MessageMediaDocument(document=messages.document(size=size))
+    msg = message(2, message="big", media=document)
+    calls = []
+
+    class StripedClient(CloneReuploadClient):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+            calls.append((offset, kw.get("stride"), request_size))
+            position = offset
+            while position < size:
+                yield bytes([position // CHUNK_SIZE]) * CHUNK_SIZE
+                position += kw["stride"]
+
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must not use sequential download_media")
+
+    client = StripedClient([msg], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    stride = 4 * CHUNK_SIZE
+    assert sorted(calls) == [(i * CHUNK_SIZE, stride, CHUNK_SIZE) for i in range(4)]
+    parts = sorted(
+        (req for req in client.part_requests),
+        key=lambda req: req.file_part,
+    )
+    assert b"".join(req.bytes for req in parts) == b"".join(
+        bytes([index]) * CHUNK_SIZE for index in range(8)
+    )
+
+
 def test_clone_sync_max_runtime_stops_a_large_download_between_chunks(
     config_env, monkeypatch, capsys
 ):
@@ -344,9 +385,8 @@ def test_clone_sync_max_runtime_stops_a_large_download_between_chunks(
     from tgcli.transfer import CHUNK_SIZE
 
     clone_state = seed_clone()
-    document = types.MessageMediaDocument(
-        document=messages.document(size=4 * CHUNK_SIZE)
-    )
+    size = 8 * CHUNK_SIZE
+    document = types.MessageMediaDocument(document=messages.document(size=size))
     msg = message(2, message="big", media=document)
     served = []
     monkeypatch.setattr(pace, "remaining", lambda: 1.0 if len(served) < 2 else 0.0)
@@ -354,10 +394,10 @@ def test_clone_sync_max_runtime_stops_a_large_download_between_chunks(
     class SlowClient(CloneReuploadClient):
         async def iter_download(self, media, *, offset=0, request_size=None, **kw):
             position = offset
-            while position < 4 * CHUNK_SIZE:
+            while position < size:
                 served.append(position)
                 yield b"N" * CHUNK_SIZE
-                position += CHUNK_SIZE
+                position += kw.get("stride") or CHUNK_SIZE
 
         async def download_media(self, message, file=None):
             raise AssertionError("large media must not use sequential download_media")
@@ -368,14 +408,12 @@ def test_clone_sync_max_runtime_stops_a_large_download_between_chunks(
     assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["stop_reason"] == "wall_clock_cap"
-    assert len(served) == 2
+    assert len(served) < 8
     assert client.part_requests == []
     assert state.load(clone_state.clone_id).cursor == 0
     [part] = (state.clones_dir() / f"{clone_state.clone_id}-media").glob("*.part")
-    assert part.stat().st_size == 2 * CHUNK_SIZE
-
-
-# --- native re-forward of a proven original --------------
+    kept = part.stat().st_size
+    assert 0 < kept < size and kept % CHUNK_SIZE == 0
 
 
 def seed_clone_with_discussion_source(*, discussion_source_peer_id=55):
