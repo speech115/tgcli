@@ -214,6 +214,21 @@ def _remember_flood(slot: str, seconds: int) -> None:
 async def _sync_slot(
     tg, source, account_alias, me, source_entity, source_kind, *, limit
 ) -> dict:
+    """One clone's run, in phases: check the recorded destination, copy the
+    posts and comments legs, then carry pins over, list the roster and
+    report."""
+    clone_state, destination, warned_unstarted = await _open_slot(
+        tg, source, me, source_entity, source_kind
+    )
+    run = _Run(tg, clone_state, destination, source_entity, account_alias, me, limit)
+    await run.copy_legs()
+    return await _finish(run, warned_unstarted)
+
+
+async def _open_slot(tg, source, me, source_entity, source_kind):
+    """Load the clone and check its destination before any copy: refused
+    during a remembered flood, on a changed source or destination kind, an
+    unlinked discussion group, or an unexpected destination tail."""
     clone_state = state.load(state.resolve_slot(me.id, source_entity.id, source_kind))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
@@ -257,44 +272,178 @@ async def _sync_slot(
             )
         ),
     )
-    copied = 0
-    copied_batches = 0
-    skipped_unsupported = []
-    transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
-    counters = {"topics_created": 0, "skipped_service": 0, "skipped_autoforward": 0}
+    return clone_state, destination, warned_unstarted
 
-    reply_flattened = 0
-    quote_flattened: list[dict] = []
-    markup_dropped: list[dict] = []
-    poll_votes: list[dict] = []
-    author_cache = {}
-    reforward_cache: dict = {}
-    paces = clone_send.RunPace()
-    more = False
-    posts_leg = legs.posts(clone_state)
-    resolve_ctx = quotes.ResolveContext(tg=tg, mutate=tg, destination=destination)
-    progress = clone_progress.SyncProgress(
-        source_entity.id, copied=len(clone_state.id_map)
-    )
-    posts_exhausted = False
-    # A post replying to a comment not copied yet waits for
-    # the comments leg (`posts_waiting`), unless that leg has stalled and will
-    # not reach it this run. A stall releases only the batch that waited
-    # (`release_waiting`): the posts after it may reply to comments that
-    # copying it unblocks.
-    posts_waiting = False
-    comments_stalled = clone_state.comments != Comments.ENABLED
-    release_waiting = False
 
-    async def copy_batch(messages, leg: legs.AnyLeg, source, dest) -> None:
-        nonlocal copied, copied_batches, reply_flattened
+class _Run:
+    """The copy phase of one clone's run and what it counts for the report."""
+
+    def __init__(
+        self, tg, clone_state, destination, source_entity, account_alias, me, limit
+    ):
+        self.tg = tg
+        self.clone_state = clone_state
+        self.destination = destination
+        self.source_entity = source_entity
+        self.account_alias = account_alias
+        self.me = me
+        self.limit = limit
+        self.forum = clone_state.destination_kind == "forum"
+        self.copied = 0
+        self.copied_batches = 0
+        self.skipped_unsupported: list[dict] = []
+        self.transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
+        self.counters = {
+            "topics_created": 0,
+            "skipped_service": 0,
+            "skipped_autoforward": 0,
+        }
+        self.reply_flattened = 0
+        self.quote_flattened: list[dict] = []
+        self.markup_dropped: list[dict] = []
+        self.poll_votes: list[dict] = []
+        self.author_cache: dict = {}
+        self.reforward_cache: dict = {}
+        self.paces = clone_send.RunPace()
+        self.more = False
+        self.posts_leg = legs.posts(clone_state)
+        self.resolve_ctx = quotes.ResolveContext(
+            tg=tg, mutate=tg, destination=destination
+        )
+        self.progress = clone_progress.SyncProgress(
+            source_entity.id, copied=len(clone_state.id_map)
+        )
+        self.posts_exhausted = False
+        # A post replying to a comment not copied yet waits for
+        # the comments leg (`posts_waiting`), unless that leg has stalled and
+        # will not reach it this run. A stall releases only the batch that
+        # waited (`release_waiting`): the posts after it may reply to comments
+        # that copying it unblocks.
+        self.posts_waiting = False
+        self.comments_stalled = clone_state.comments != Comments.ENABLED
+        self.release_waiting = False
+
+    def limit_reached(self) -> bool:
+        return self.limit is not None and self.copied_batches >= self.limit
+
+    async def copy_legs(self) -> None:
+        clone_state = self.clone_state
+        if clone_state.comments != Comments.ENABLED:
+            await self.run_posts_window(None)
+            return
+        # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
+        # Enter comments only while --limit budget remains; a limit hit during
+        # posts ends the run (same as today for limit < WINDOW).
+        while not self.more and not pace.exhausted():
+            # Each interleaved window re-announces its leg so the counters
+            # belong to the leg that is running (ADR-0051 interleave, #174).
+            self.progress.phase("posts", copied=len(clone_state.id_map))
+            self.posts_waiting = False
+            ran = await self.run_posts_window(legs.WINDOW)
+            if self.more or pace.exhausted():
+                break
+            self.posts_exhausted = ran < legs.WINDOW and not self.posts_waiting
+            discussion_before = clone_state.discussion_cursor
+            self.progress.phase("comments", copied=len(clone_state.discussion_id_map))
+            self.more = await comments.sync_phase(
+                self.tg,
+                clone_state,
+                self.source_entity,
+                self.destination,
+                self.copy_batch,
+                self.counters,
+                self.limit_reached,
+                self.resolve_ctx,
+                posts_exhausted=self.posts_exhausted,
+            )
+            if self.posts_exhausted:
+                break
+            if clone_state.comments != Comments.ENABLED:
+                # The group refused mid-run and comments degraded (ADR-0061):
+                # the remaining posts copy alone.
+                self.comments_stalled = True
+                await self.run_posts_window(None)
+                break
+            # A waiting post needs the comments leg to move. If this window
+            # did not move it, no later one will: the post goes out flat.
+            self.release_waiting = (
+                self.posts_waiting
+                and clone_state.discussion_cursor == discussion_before
+            )
+
+    async def run_posts_window(self, max_batches: int | None) -> int:
+        """Copy up to max_batches posts (None = exhaust). Sets more on --limit."""
+        tg = self.tg
+        ran = 0
+        async for event in batching.plan(
+            tg.iter_messages(
+                self.source_entity,
+                min_id=self.posts_leg.cursor,
+                reverse=True,
+                wait_time=pace.PAGE_WAIT_S,
+            )
+        ):
+            if self.limit_reached():
+                self.more = True
+                break
+            if pace.exhausted():
+                break
+            if isinstance(event, batching.ServiceSkip):
+                await self._skip_service(event)
+                continue
+            if self.release_waiting:
+                self.release_waiting = False
+            elif not self.comments_stalled:
+                classified = replies.target(
+                    event.messages,
+                    self.posts_leg,
+                    self.source_entity,
+                    comments_stalled=False,
+                )
+                if classified is not None and classified.kind == "deferred":
+                    self.posts_waiting = True
+                    break
+            await self.copy_batch(
+                event.messages, self.posts_leg, self.source_entity, self.destination
+            )
+            ran += 1
+            if max_batches is not None and ran >= max_batches:
+                break
+        return ran
+
+    async def _skip_service(self, event) -> None:
+        clone_state = self.clone_state
+        source_message = event.message
+        if self.forum and isinstance(
+            source_message.action, types.MessageActionTopicCreate
+        ):
+            if clone_state.topic_dest_for(source_message.id) is None:
+                await topics.create_topic(
+                    self.tg,
+                    self.destination,
+                    clone_state,
+                    source_message.id,
+                    account_alias=self.account_alias,
+                    title=source_message.action.title,
+                    icon_color=getattr(source_message.action, "icon_color", None),
+                    icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None),
+                )
+                self.counters["topics_created"] += 1
+        else:
+            self.counters["skipped_service"] += 1
+        self.posts_leg.cursor = event.message_id
+        state.save(clone_state)
+
+    async def copy_batch(self, messages, leg: legs.AnyLeg, source, dest) -> None:
+        clone_state = self.clone_state
+        tg = self.tg
         unsupported = [
             {"id": message.id, "kind": kind}
             for message in messages
             if (kind := fidelity.unsupported_kind(message)) is not None
         ]
         if unsupported:
-            skipped_unsupported.extend(unsupported)
+            self.skipped_unsupported.extend(unsupported)
             leg.cursor = messages[-1].id
             state.save(clone_state)
             for item in unsupported:
@@ -306,13 +455,13 @@ async def _sync_slot(
         # `source` is this leg's own entity — the channel for posts, the
         # discussion group for comments — so the ~total describes the work
         # the leg's counter is counting (#174).
-        await progress.resolve_total(tg, source)
+        await self.progress.resolve_total(tg, source)
         plan = transport.decide(
             messages,
             leg,
             source,
             posts_cursor=clone_state.cursor,
-            posts_exhausted=posts_exhausted,
+            posts_exhausted=self.posts_exhausted,
         )
         if plan.mode == "deferred":
             return
@@ -321,20 +470,20 @@ async def _sync_slot(
             plan,
             leg,
             source,
-            resolve_ctx,
+            self.resolve_ctx,
             posts_cursor=clone_state.cursor,
-            posts_exhausted=posts_exhausted,
+            posts_exhausted=self.posts_exhausted,
         )
         topic_dest = None
-        if forum:
+        if self.forum:
             topic_dest = await topics.ensure_topic(
                 tg,
                 source,
                 dest,
                 clone_state,
                 topics.topic_id_of(messages[0]),
-                counters,
-                account_alias=account_alias,
+                self.counters,
+                account_alias=self.account_alias,
             )
         batch_copied, mode, flattened, flattened_quote = await quotes.send_with_degrade(
             lambda active_plan: clone_send.forward_batch(
@@ -343,25 +492,25 @@ async def _sync_slot(
                 dest,
                 clone_state,
                 leg,
-                account_alias,
+                self.account_alias,
                 list(messages),
-                me,
-                author_cache,
+                self.me,
+                self.author_cache,
                 active_plan,
                 topic_dest=topic_dest,
-                poll_votes=poll_votes,
-                progress=progress,
-                reforward_cache=reforward_cache,
-                paces=paces,
+                poll_votes=self.poll_votes,
+                progress=self.progress,
+                reforward_cache=self.reforward_cache,
+                paces=self.paces,
             ),
             list(messages),
             plan,
             leg,
             source,
-            resolve_ctx,
+            self.resolve_ctx,
         )
-        copied += batch_copied
-        transport_counts[mode] += batch_copied
+        self.copied += batch_copied
+        self.transport_counts[mode] += batch_copied
         # Only a native forward carries a keyboard; every other transport
         # rebuilds the message and Telegram will not let a user account
         # reattach one, so the rows are recorded as lost (ADR-0085). Every
@@ -378,131 +527,38 @@ async def _sync_slot(
                     "bot button(s); a keyboard belongs to the bot that "
                     "attached it and no copy can recreate one"
                 )
-                markup_dropped.append({"id": message.id, "buttons": buttons})
-        reply_flattened += int(flattened)
+                self.markup_dropped.append({"id": message.id, "buttons": buttons})
+        self.reply_flattened += int(flattened)
         if flattened_quote is not None:
-            quote_flattened.append(flattened_quote)
+            self.quote_flattened.append(flattened_quote)
             note(
                 f"warning: source message {flattened_quote['id']} planted quote "
                 f"fallback ({flattened_quote['reason']})"
             )
-        copied_batches += 1
-        progress.batch(batch_copied, mode)
+        self.copied_batches += 1
+        self.progress.batch(batch_copied, mode)
 
-    async def run_posts_window(max_batches: int | None) -> int:
-        """Copy up to max_batches posts (None = exhaust). Sets more on --limit."""
-        nonlocal more, posts_waiting, release_waiting
-        ran = 0
-        async for event in batching.plan(
-            tg.iter_messages(
-                source_entity,
-                min_id=posts_leg.cursor,
-                reverse=True,
-                wait_time=pace.PAGE_WAIT_S,
-            )
-        ):
-            if limit is not None and copied_batches >= limit:
-                more = True
-                break
-            if pace.exhausted():
-                break
-            if isinstance(event, batching.ServiceSkip):
-                source_message = event.message
-                if forum and isinstance(
-                    source_message.action, types.MessageActionTopicCreate
-                ):
-                    if clone_state.topic_dest_for(source_message.id) is None:
-                        await topics.create_topic(
-                            tg,
-                            destination,
-                            clone_state,
-                            source_message.id,
-                            account_alias=account_alias,
-                            title=source_message.action.title,
-                            icon_color=getattr(
-                                source_message.action, "icon_color", None
-                            ),
-                            icon_emoji_id=getattr(
-                                source_message.action, "icon_emoji_id", None
-                            ),
-                        )
-                        counters["topics_created"] += 1
-                else:
-                    counters["skipped_service"] += 1
-                posts_leg.cursor = event.message_id
-                state.save(clone_state)
-                continue
-            if release_waiting:
-                release_waiting = False
-            elif not comments_stalled:
-                classified = replies.target(
-                    event.messages, posts_leg, source_entity, comments_stalled=False
-                )
-                if classified is not None and classified.kind == "deferred":
-                    posts_waiting = True
-                    break
-            await copy_batch(event.messages, posts_leg, source_entity, destination)
-            ran += 1
-            if max_batches is not None and ran >= max_batches:
-                break
-        return ran
 
-    if clone_state.comments == Comments.ENABLED:
-        # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
-        # Enter comments only while --limit budget remains; a limit hit during
-        # posts ends the run (same as today for limit < WINDOW).
-        while not more and not pace.exhausted():
-            # Each interleaved window re-announces its leg so the counters
-            # belong to the leg that is running (ADR-0051 interleave, #174).
-            progress.phase("posts", copied=len(clone_state.id_map))
-            posts_waiting = False
-            ran = await run_posts_window(legs.WINDOW)
-            if more or pace.exhausted():
-                break
-            posts_exhausted = ran < legs.WINDOW and not posts_waiting
-            discussion_before = clone_state.discussion_cursor
-            progress.phase("comments", copied=len(clone_state.discussion_id_map))
-            more = await comments.sync_phase(
-                tg,
-                clone_state,
-                source_entity,
-                destination,
-                copy_batch,
-                counters,
-                lambda: limit is not None and copied_batches >= limit,
-                resolve_ctx,
-                posts_exhausted=posts_exhausted,
-            )
-            if posts_exhausted:
-                break
-            if clone_state.comments != Comments.ENABLED:
-                # The group refused mid-run and comments degraded (ADR-0061):
-                # the remaining posts copy alone.
-                comments_stalled = True
-                await run_posts_window(None)
-                break
-            # A waiting post needs the comments leg to move. If this window
-            # did not move it, no later one will: the post goes out flat.
-            release_waiting = (
-                posts_waiting and clone_state.discussion_cursor == discussion_before
-            )
-    else:
-        await run_posts_window(None)
-
+async def _finish(run: _Run, warned_unstarted) -> dict:
+    """Pins, roster and the sync document, after the copy phase."""
+    clone_state = run.clone_state
+    tg = run.tg
+    destination = run.destination
+    more = run.more
     # A run the cap stopped stopped early: no pin phase and no roster listing
     # (the CLI contract), and `remaining` reflects the copy, not later phases.
     capped = pace.exhausted()
     # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
-    if not forum:
+    if not run.forum:
         if not more and not capped:
             pinned_result = await pin.sync_phase(
                 tg,
                 clone_state,
-                source_entity,
+                run.source_entity,
                 destination,
                 tg,
-                account_alias,
+                run.account_alias,
             )
         else:
             pinned_result = pin.snapshot(clone_state)
@@ -514,8 +570,8 @@ async def _sync_slot(
     elif not roster.due(clone_state):
         participants = roster.fresh(clone_state)
     else:
-        progress.phase("roster")
-        participants = await roster.collect(tg, clone_state, source_entity)
+        run.progress.phase("roster")
+        participants = await roster.collect(tg, clone_state, run.source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     clone_state.retry_not_before = None
     state.save(clone_state)
@@ -523,23 +579,23 @@ async def _sync_slot(
         clone_state,
         {"id": destination.id, "title": destination.title},
         {
-            "copied": copied,
-            "skipped_unsupported": skipped_unsupported,
-            **transport_counts,
-            **counters,
-            "reply_flattened": reply_flattened,
-            "quote_flattened": quote_flattened,
-            "markup_dropped": markup_dropped,
-            "poll_votes": poll_votes,
+            "copied": run.copied,
+            "skipped_unsupported": run.skipped_unsupported,
+            **run.transport_counts,
+            **run.counters,
+            "reply_flattened": run.reply_flattened,
+            "quote_flattened": run.quote_flattened,
+            "markup_dropped": run.markup_dropped,
+            "poll_votes": run.poll_votes,
         },
         more=more,
         participants=participants,
         pinned=pinned_result,
     )
     data["remaining"] = bool(more or capped)
-    if quote_flattened:
+    if run.quote_flattened:
         raise PartialFailure(
-            f"clone sync finished with {len(quote_flattened)} quote fallback(s)",
+            f"clone sync finished with {len(run.quote_flattened)} quote fallback(s)",
             data,
             cause=PolicyError("clone planted quote fallback(s)"),
             rows=sync_rows(data),
