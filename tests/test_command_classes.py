@@ -32,7 +32,6 @@ READS = {
 LOCAL_READS = {
     "accounts list",
     "accounts show",
-    "archive history",
     "archive list",
     "archive read",
     "archive search",

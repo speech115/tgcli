@@ -52,14 +52,6 @@ def read(args, config: Config) -> tuple[dict, list[tuple]]:
     return data, explore_mod.read_rows(data)
 
 
-def history(args, config: Config) -> tuple[dict, list[tuple]]:
-    alias = archive_cmd.resolve_alias(args.account, config)
-    data = archive_cmd.offline_read(
-        alias, explore_mod.history, args.chat, args.message_id, config=config
-    )
-    return data, explore_mod.history_rows(data)
-
-
 def search(args, config: Config) -> tuple[dict, list[tuple]]:
     alias = archive_cmd.resolve_alias(args.account, config)
     data = archive_cmd.offline_read(

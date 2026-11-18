@@ -1,4 +1,4 @@
-"""Offline archive search, timeline, and history queries."""
+"""Offline archive search and timeline queries."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from tgcli.archive import limits, peers as peers_mod, search as search_mod
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import PolicyError
 from tgcli.messages import MEDIA_KINDS
 
 SORTS = ("relevance", "date")
@@ -40,12 +40,6 @@ def validate_sort(sort: str | None) -> str:
     if sort not in SORTS:
         raise PolicyError(f"archive search --sort must be one of: {', '.join(SORTS)}")
     return sort
-
-
-def validate_message_id(message_id: int) -> int:
-    if message_id <= 0:
-        raise PolicyError("archive history MESSAGE_ID must be positive")
-    return message_id
 
 
 def validate_date_range(
@@ -423,65 +417,6 @@ def read(
     }
 
 
-def history(conn: sqlite3.Connection, chat: str, message_id: int) -> dict[str, Any]:
-    if not str(chat).strip():
-        raise PolicyError("archive history CHAT must be non-empty")
-    message_id = validate_message_id(message_id)
-    peer_id = search_mod.resolve_peer_id(conn, chat)
-    current = conn.execute(
-        _message_select() + " AND m.message_id = ?", (peer_id, message_id)
-    ).fetchone()
-    revisions = conn.execute(
-        "SELECT edited_at, payload, recorded_at FROM revisions "
-        "WHERE peer_id = ? AND message_id = ? ORDER BY recorded_at, edited_at",
-        (peer_id, message_id),
-    ).fetchall()
-    tombstone = conn.execute(
-        "SELECT deleted_at FROM tombstones WHERE peer_id = ? AND message_id = ?",
-        (peer_id, message_id),
-    ).fetchone()
-    if current is None and not revisions and tombstone is None:
-        raise NotFoundError(f"message not in archive: {chat!r}/{message_id}")
-    identity = peers_mod.resolve(conn, peer_id)
-    current_record = None
-    if current is not None:
-        current_record = _record(
-            _payload(current["payload"], peer_id, message_id),
-            peer_id=peer_id,
-            message_id=message_id,
-            transcript=current["transcript"],
-            transcript_status=current["transcript_status"],
-            username=identity["username"],
-            kind=identity["kind"],
-        )
-    return {
-        "chat": chat,
-        "peer_id": peer_id,
-        "message_id": message_id,
-        "identity": identity,
-        "status": "deleted" if tombstone is not None else "present",
-        "current": current_record,
-        "revisions": [
-            {
-                "edited_at": row["edited_at"],
-                "recorded_at": row["recorded_at"],
-                "message": _record(
-                    _payload(row["payload"], peer_id, message_id),
-                    peer_id=peer_id,
-                    message_id=message_id,
-                    username=identity["username"],
-                    kind=identity["kind"],
-                ),
-            }
-            for row in revisions
-        ],
-        "tombstone": None
-        if tombstone is None
-        else {"deleted_at": tombstone["deleted_at"]},
-        "scope": _scope(conn),
-    }
-
-
 def search_rows(data: dict) -> list[tuple]:
     return [
         (
@@ -510,16 +445,3 @@ def read_rows(data: dict) -> list[tuple]:
         )
         for message in data["messages"]
     ]
-
-
-def history_rows(data: dict) -> list[tuple]:
-    rows = [("status", data["status"]), ("message_id", data["message_id"])]
-    if data.get("current") is not None:
-        rows.append(("current", data["current"].get("text")))
-    rows.extend(
-        [
-            ("revisions", len(data["revisions"])),
-            ("deleted_at", (data.get("tombstone") or {}).get("deleted_at")),
-        ]
-    )
-    return rows
