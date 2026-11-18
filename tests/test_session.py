@@ -235,6 +235,7 @@ def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch)
         "device_model": "tgcli",
         "system_version": "TestOS",
         "app_version": session.__version__,
+        "receive_updates": False,
     }
 
 
