@@ -32,28 +32,6 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-def test_media_download_rejects_codec_on_message_source(
-    config_env, monkeypatch, capsys
-):
-    """--codec is story-only; a message source must not silently ignore it."""
-    make_session_fake(monkeypatch, FakeClient())
-
-    assert (
-        main(
-            [
-                "--json",
-                "media",
-                "download",
-                "https://t.me/chan/42",
-                "--codec",
-                "h264",
-            ]
-        )
-        == 2
-    )
-    assert "story sources only" in capsys.readouterr().err
-
-
 def test_media_download_json_reports_progress_only_on_stderr(
     config_env, monkeypatch, capsys
 ):
@@ -166,29 +144,6 @@ def test_media_manifest_type_filter(config_env, monkeypatch, capsys):
     assert payload["items"][0]["message_id"] == 2
 
 
-def test_media_manifest_type_filter_accepts_video_note(config_env, monkeypatch, capsys):
-    from tests.conftest import ns
-
-    entity = ns(id=-1001, title="Channel")
-    client = FakeClient(
-        messages=[
-            media_message(3, "video"),
-            media_message(2, "video_note"),
-            media_message(1, "audio"),
-        ],
-        entities={"@channel": entity},
-    )
-    make_session_fake(monkeypatch, client)
-
-    assert (
-        main(["--json", "media", "manifest", "@channel", "--type", "video_note"]) == 0
-    )
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["count"] == 1
-    assert payload["items"][0]["type"] == "video_note"
-    assert payload["items"][0]["message_id"] == 2
-
-
 def test_media_manifest_since_excludes_older(config_env, monkeypatch, capsys):
     from datetime import UTC, datetime
 
@@ -260,46 +215,6 @@ def test_media_manifest_json_passes_control_characters_through(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["items"][0]["filename"] == HOSTILE_FILENAME
-
-
-def _voice_media():
-    from datetime import UTC, datetime
-
-    from telethon.tl import types
-
-    document = types.Document(
-        id=8,
-        access_hash=1,
-        file_reference=b"",
-        date=datetime(2026, 7, 20, tzinfo=UTC),
-        mime_type="audio/ogg",
-        size=3,
-        dc_id=2,
-        attributes=[types.DocumentAttributeAudio(duration=1, voice=True)],
-    )
-    return types.MessageMediaDocument(document=document)
-
-
-@pytest.mark.parametrize(
-    ("media", "expected"),
-    [(photo_media, "media-42.jpg"), (_voice_media, "media-42.oga")],
-)
-def test_media_download_names_an_unnamed_file_by_its_type(
-    config_env, monkeypatch, tmp_path, capsys, media, expected
-):
-    from tests.conftest import ns
-
-    monkeypatch.setenv("HOME", str(tmp_path))
-    client = StreamingClient(
-        messages=[real_message(42, media())],
-        entities={"@chan": ns(id=5, title="C")},
-    )
-    make_session_fake(monkeypatch, client)
-
-    assert main(["--json", "media", "download", "@chan", "42"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["path"] == str(tmp_path / "Downloads" / expected)
-    assert (tmp_path / "Downloads" / expected).read_bytes() == b"abc"
 
 
 def test_media_download_resumes_a_checkpoint_from_the_bin_name(

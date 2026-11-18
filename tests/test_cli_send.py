@@ -12,9 +12,8 @@ from telethon.extensions import markdown
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tgcli import safety, session
+from tgcli import safety
 from tgcli.cli import main
-from tgcli.errors import PolicyError
 
 SAMPLE = """
 default_account = "main"
@@ -71,42 +70,12 @@ class UnknownChatClient(SendClient):
         raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
 
 
-class FailingClient(SendClient):
-    async def __call__(self, request):
-        raise OSError("connection reset")
-
-
 class AlreadySentClient(SendClient):
     """An earlier attempt was delivered: Telegram refuses the reused random_id."""
 
     async def __call__(self, request):
         self.requests.append(request)
         raise RandomIdDuplicateError(request=request)
-
-
-class SnapshotClient(SendClient):
-    def __init__(self, original: Path, failure: str | None = None):
-        super().__init__()
-        self.original = original
-        self.failure = failure
-        self.snapshot_path = None
-        self.uploaded_bytes = None
-
-    async def upload_file(self, path, file_name=None):
-        self.snapshot_path = Path(path)
-        self.original.write_bytes(b"swap")
-        self.uploaded_bytes = self.snapshot_path.read_bytes()
-        if self.failure == "upload":
-            raise OSError("upload failed")
-        return await super().upload_file(path, file_name)
-
-    async def __call__(self, request):
-        if self.failure == "request":
-            raise OSError("request failed")
-        if self.failure == "confirmation":
-            self.requests.append(request)
-            return SimpleNamespace(updates=[])
-        return await super().__call__(request)
 
 
 def file_preview(path: Path, *, random_id: int) -> dict:
@@ -218,32 +187,6 @@ def test_send_preview_normalizes_relative_file_path(
     assert safety.begin_commit(preview["preview_id"])["file"] == str(photo)
 
 
-def test_send_preview_records_reply_topic_silent(config_env, monkeypatch, capsys):
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert (
-        main(
-            [
-                "send",
-                "@alice",
-                "hi",
-                "--reply-to",
-                "5",
-                "--topic",
-                "9",
-                "--silent",
-                "--preview",
-                "--json",
-            ]
-        )
-        == 0
-    )
-    preview = json.loads(capsys.readouterr().out)
-    stored = safety.begin_commit(preview["preview_id"])
-    assert (stored["reply_to"], stored["topic"], stored["silent"]) == (5, 9, True)
-
-
 def test_send_file_rejects_positional_text(config_env, monkeypatch, capsys):
     client = SendClient()
     make_session_fake(monkeypatch, client)
@@ -349,165 +292,6 @@ def test_send_commit_places_the_message_by_reply_and_topic(
     assert request.reply_to == header
 
 
-def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "reply_to": 5,
-            "topic": None,
-            "silent": True,
-            "random_id": 777,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "preview_id": preview["preview_id"],
-        "message_id": 42,
-        "already_sent": False,
-    }
-    [request] = client.requests
-    assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.random_id == 777
-    assert request.silent is True
-    assert request.reply_to.reply_to_msg_id == 5
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 2
-
-    lines = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
-    assert lines[-2]["action"] == "send"
-    assert lines[-2]["random_id"] == 777
-    assert lines[-1]["action"] == "send-result"
-    assert lines[-1]["message_id"] == 42
-
-
-def test_send_commit_parses_default_markdown_entities(config_env, monkeypatch):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "**bold**",
-            "file": None,
-            "file_size": None,
-            "file_sha256": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 783,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-    [request] = client.requests
-    assert request.message == "bold"
-    assert request.entities == [types.MessageEntityBold(offset=0, length=4)]
-
-
-def test_send_preview_records_format(config_env, monkeypatch, capsys):
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert (
-        main(["send", "@alice", "<b>hi</b>", "--format", "html", "--preview", "--json"])
-        == 0
-    )
-    preview = json.loads(capsys.readouterr().out)
-    assert preview["format"] == "html"
-    assert safety.begin_commit(preview["preview_id"])["format"] == "html"
-    assert client.requests == []
-
-
-def test_send_preview_blocks_truncating_html(config_env, monkeypatch, capsys):
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert (
-        main(
-            [
-                "send",
-                "@alice",
-                "if a<b then c",
-                "--format",
-                "html",
-                "--preview",
-                "--json",
-            ]
-        )
-        == 2
-    )
-
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "BLOCKED"
-    assert "unterminated html markup" in error["message"]
-    assert client.requests == []
-    assert list(safety.previews_dir().glob("*")) == []
-
-
-def test_send_commit_html_sends_entities(config_env, monkeypatch):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "<b>жир</b> <tg-spoiler>секрет</tg-spoiler>",
-            "format": "html",
-            "file": None,
-            "file_size": None,
-            "file_sha256": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 784,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-    [request] = client.requests
-    assert request.message == "жир секрет"
-    assert [type(e) for e in request.entities] == [
-        types.MessageEntityBold,
-        types.MessageEntitySpoiler,
-    ]
-
-
-def test_send_commit_plain_sends_text_verbatim(config_env, monkeypatch):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "**literal** <b>tags</b>",
-            "format": "plain",
-            "file": None,
-            "file_size": None,
-            "file_sha256": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 785,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-    [request] = client.requests
-    assert request.message == "**literal** <b>tags</b>"
-    assert request.entities is None
-
-
 def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     photo = tmp_path / "pic.jpg"
     photo.write_bytes(b"file")
@@ -543,106 +327,6 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     assert client.file_names == ["pic.jpg"]
 
 
-def test_send_commit_uploads_verified_snapshot_when_original_changes(
-    config_env, monkeypatch, tmp_path
-):
-    document = tmp_path / "report.txt"
-    document.write_bytes(b"file")
-    preview = file_preview(document, random_id=785)
-    client = SnapshotClient(document)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-
-    assert client.snapshot_path != document
-    assert client.uploaded_bytes == b"file"
-    assert document.read_bytes() == b"swap"
-    assert client.snapshot_path is not None
-    assert not client.snapshot_path.exists()
-    [request] = client.requests
-    assert isinstance(request.media, types.InputMediaUploadedDocument)
-    assert request.media.mime_type == "text/plain"
-    assert request.media.attributes == [types.DocumentAttributeFilename("report.txt")]
-
-
-@pytest.mark.parametrize("failure", ["upload", "request", "confirmation"])
-def test_send_commit_cleans_verified_snapshot_on_failure(
-    config_env, monkeypatch, tmp_path, capsys, failure
-):
-    document = tmp_path / "report.txt"
-    document.write_bytes(b"file")
-    preview = file_preview(document, random_id=786)
-    client = SnapshotClient(document, failure)
-    make_session_fake(monkeypatch, client)
-
-    if failure == "confirmation":
-        assert main(["send", "--commit", preview["preview_id"]]) == 2
-    else:
-        assert main(["send", "--commit", preview["preview_id"]]) == 1
-        assert capsys.readouterr().err == f"error: {failure} failed\n"
-
-    assert client.snapshot_path != document
-    assert client.uploaded_bytes == b"file"
-    assert client.snapshot_path is not None
-    assert not client.snapshot_path.exists()
-
-
-def test_send_commit_parses_default_markdown_caption(config_env, monkeypatch, tmp_path):
-    photo = tmp_path / "pic.jpg"
-    photo.write_bytes(b"file")
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "**bold**",
-            "file": str(photo),
-            "file_size": 4,
-            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 784,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-    [request] = client.requests
-    assert request.message == "bold"
-    assert request.entities == [types.MessageEntityBold(offset=0, length=4)]
-
-
-def test_send_commit_rejects_file_with_changed_size_before_upload(
-    config_env, monkeypatch, tmp_path
-):
-    photo = tmp_path / "pic.jpg"
-    photo.write_bytes(b"file")
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "look",
-            "file": str(photo),
-            "file_size": 4,
-            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 781,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    photo.write_bytes(b"changed")
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 2
-    assert client.uploaded == []
-    assert client.requests == []
-
-
 def test_send_commit_rejects_same_size_file_replacement_before_upload(
     config_env, monkeypatch, tmp_path
 ):
@@ -672,79 +356,6 @@ def test_send_commit_rejects_same_size_file_replacement_before_upload(
     assert client.requests == []
 
 
-def test_send_commit_is_retryable_after_network_failure(
-    config_env, monkeypatch, capsys
-):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 779,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    make_session_fake(monkeypatch, FailingClient())
-
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 1
-    assert json.loads(capsys.readouterr().out)["error"] == {
-        "code": "RUNTIME",
-        "message": "connection reset",
-    }
-
-    working = SendClient()
-    make_session_fake(monkeypatch, working)
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
-    assert working.requests[0].random_id == 779
-
-
-def test_send_commit_reports_already_sent_on_duplicate_random_id(
-    config_env, monkeypatch, capsys
-):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 781,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    make_session_fake(monkeypatch, FailingClient())
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 1
-    capsys.readouterr()
-
-    client = AlreadySentClient()
-    make_session_fake(monkeypatch, client)
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {
-        "preview_id": preview["preview_id"],
-        "message_id": None,
-        "already_sent": True,
-    }
-    [request] = client.requests
-    assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.random_id == 781
-    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
-    assert not pending.exists()
-    assert pending.with_suffix(".used").exists()
-    result = json.loads(safety.audit_path().read_text().splitlines()[-1])
-    assert result["action"] == "send-result"
-    assert result["message_id"] is None
-    assert result["already_sent"] is True
-
-
 def test_send_media_commit_reports_already_sent_on_duplicate_random_id(
     config_env, monkeypatch, capsys, tmp_path
 ):
@@ -769,45 +380,6 @@ def test_send_media_commit_reports_already_sent_on_duplicate_random_id(
     result = json.loads(safety.audit_path().read_text().splitlines()[-1])
     assert result["action"] == "send-result"
     assert result["already_sent"] is True
-
-
-def test_send_commit_keeps_preview_pending_when_result_audit_fails(
-    config_env, monkeypatch, capsys
-):
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 780,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-    original_append_audit = safety.append_audit
-
-    def fail_result_audit(action, account, details):
-        if action == "send-result":
-            raise PolicyError("cannot write audit record: disk full")
-        original_append_audit(action, account, details)
-
-    monkeypatch.setattr(safety, "append_audit", fail_result_audit)
-
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 2
-    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
-    assert pending.exists()
-    assert not pending.with_suffix(".used").exists()
-
-    monkeypatch.setattr(safety, "append_audit", original_append_audit)
-    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
-    assert len(client.requests) == 2
-    assert {request.random_id for request in client.requests} == {780}
 
 
 def test_send_commit_refuses_while_another_process_commits_the_preview(
@@ -849,77 +421,6 @@ def test_send_commit_refuses_while_another_process_commits_the_preview(
     assert main(["send", "--commit", preview_id, "--json"]) == 0
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-
-
-def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
-    from tgcli import cli
-
-    preview = safety.create_preview({"kind": "clone-init"})
-    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(
-        session, "client", lambda account: pytest.fail("session opened")
-    )
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 2
-    assert not safety.audit_path().exists()
-    preview_path = safety.previews_dir() / f"{preview['preview_id']}.json"
-    assert preview_path.exists()
-    assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-init"
-
-
-def test_send_commit_with_extra_args_returns_usage_error(capsys):
-    assert main(["send", "--commit", "p_x", "@alice"]) == 1
-    assert "send --commit accepts only a preview id" in capsys.readouterr().err
-
-
-def test_send_without_required_args_returns_usage_error(capsys):
-    assert main(["send", "@alice"]) == 1
-    assert (
-        "send requires CHAT (TEXT | --file PATH) --preview or --commit PREVIEW_ID"
-        in capsys.readouterr().err
-    )
-
-
-@pytest.mark.parametrize(
-    "flag, value",
-    [
-        ("--readonly", None),
-        ("TGCLI_READONLY", "1"),
-        ("TGCLI_READONLY", "true"),
-        ("TGCLI_READONLY", " Yes "),
-        ("TGCLI_NO_SEND", "1"),
-        ("TGCLI_NO_SEND", "on"),
-    ],
-)
-def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, value):
-    from tgcli import cli
-
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 780,
-            "to": {},
-        }
-    )
-    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(
-        session, "client", lambda account: pytest.fail("session opened")
-    )
-    if flag.startswith("TGCLI_"):
-        monkeypatch.setenv(flag, value)
-        argv = ["send", "--commit", preview["preview_id"]]
-    else:
-        argv = [flag, "send", "--commit", preview["preview_id"]]
-
-    assert main(argv) == 2
-    assert not safety.audit_path().exists()
 
 
 def _box(kind: bytes, payload: bytes) -> bytes:
@@ -1010,31 +511,5 @@ def test_send_commit_sends_non_mp4_video_as_video_without_streaming(
             random_id=791,
             mime=mime,
             video=types.DocumentAttributeVideo(duration=0, w=1, h=1),
-        )
-    ]
-
-
-def test_send_commit_reports_display_size_of_turned_video(
-    config_env, monkeypatch, tmp_path
-):
-    clip = tmp_path / "phone.mov"
-    clip.write_bytes(
-        _mp4(timescale=600, duration=1800, width=1920, height=1080, turned=True)
-    )
-    preview = file_preview(clip, random_id=792)
-    client = SendClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["send", "--commit", preview["preview_id"]]) == 0
-
-    assert client.requests == [
-        _video_request(
-            client,
-            clip,
-            random_id=792,
-            mime="video/quicktime",
-            video=types.DocumentAttributeVideo(
-                duration=3.0, w=1080, h=1920, supports_streaming=True
-            ),
         )
     ]

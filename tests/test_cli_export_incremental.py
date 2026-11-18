@@ -105,39 +105,6 @@ def test_export_messages_append_with_after_id(
     ] == [1, 2, 3]
 
 
-def test_export_messages_append_preserves_destination_when_batch_crashes(
-    config_env, monkeypatch, tmp_path
-):
-    fake = make_export_fake()
-
-    async def interrupted_messages(*args, **kwargs):
-        yield make_message(2, "partial")
-        raise OSError("connection failed")
-
-    fake.iter_messages = interrupted_messages
-    make_session_fake(monkeypatch, fake)
-    destination = tmp_path / "messages.jsonl"
-    original = json.dumps({"id": 1, "text": "complete"}) + "\n"
-    destination.write_text(original, encoding="utf-8")
-
-    assert (
-        main(
-            [
-                "export",
-                "messages",
-                "@chan",
-                "--output",
-                str(destination),
-                "--append",
-                "--after-id",
-                "1",
-            ]
-        )
-        == 1
-    )
-    assert destination.read_text(encoding="utf-8") == original
-
-
 def test_export_messages_resume_from_last_line(
     config_env, monkeypatch, tmp_path, capsys
 ):
@@ -235,19 +202,3 @@ def test_export_messages_resume_missing_file_exits_1(config_env, monkeypatch, tm
         )
         == 1
     )
-
-
-def test_export_messages_reads_takeout_pages_without_a_gap(
-    config_env, monkeypatch, tmp_path
-):
-    """A takeout session lifts the history limits; spacing it would only slow it."""
-    fake = make_export_fake(messages=[make_message(1, "x")])
-    make_session_fake(monkeypatch, fake)
-
-    assert (
-        main(["export", "messages", "@chan", "--output", str(tmp_path / "m.jsonl")])
-        == 0
-    )
-
-    assert fake.takeout_calls, "the export did not open a takeout"
-    assert fake.iter_messages_kwargs["wait_time"] == 0

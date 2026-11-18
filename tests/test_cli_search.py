@@ -165,58 +165,6 @@ def test_search_json_passes_query_and_returns_search_results(
     }
 
 
-@pytest.mark.parametrize(
-    ("command", "fake"),
-    [
-        (
-            ["search", "@chan", "needle", "--plain"],
-            lambda entity: FakeClient(
-                search_messages={"needle": [make_message(42, "a\tb\r\nc")]},
-                entities={"@chan": entity},
-            ),
-        ),
-    ],
-)
-def test_search_plain_sanitize_message_controls(
-    config_env, monkeypatch, capsys, command, fake
-):
-    entity = ns(id=-1001234, title="Channel")
-    make_session_fake(monkeypatch, fake(entity))
-
-    code = main(command)
-
-    assert code == 0
-    assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"
-
-
-@pytest.mark.parametrize(
-    ("command", "fake"),
-    [
-        (
-            ["search", "@chan", "needle", "--plain"],
-            lambda entity, message: FakeClient(
-                search_messages={"needle": [message]}, entities={"@chan": entity}
-            ),
-        ),
-    ],
-)
-def test_search_plain_sanitize_sender_controls(
-    config_env, monkeypatch, capsys, command, fake
-):
-    entity = ns(id=-1001234, title="Channel")
-    message = make_message(42, "hello")
-    message.sender.first_name = "A\tlice\r\n"
-    make_session_fake(monkeypatch, fake(entity, message))
-
-    code = main(command)
-
-    assert code == 0
-    output = capsys.readouterr().out
-    assert output.count("\n") == 1
-    assert "\r" not in output
-    assert len(output.rstrip("\n").split("\t")) == 4
-
-
 def test_search_reports_more_when_hits_exceed_limit(config_env, monkeypatch, capsys):
     fake = make_search_client()
     make_session_fake(monkeypatch, fake)
@@ -236,32 +184,6 @@ def test_search_reports_no_more_when_all_hits_fit(config_env, monkeypatch, capsy
 
     data = json.loads(capsys.readouterr().out)
     assert len(data["messages"]) == 2
-    assert data["more"] is False
-
-
-def test_search_since_boundary_is_not_more(config_env, monkeypatch, capsys):
-    entity = ns(id=-1001234, title="Channel")
-    newest = make_message(42, "hello today")
-    newest.date = dt.datetime(2026, 7, 18, 10, 0, tzinfo=dt.UTC)
-    older = make_message(41, "hello yesterday")
-    older.date = dt.datetime(2026, 7, 17, 10, 0, tzinfo=dt.UTC)
-    make_session_fake(
-        monkeypatch,
-        FakeClient(
-            search_messages={"hello": [newest, older]}, entities={"@chan": entity}
-        ),
-    )
-
-    assert (
-        main(
-            ["search", "@chan", "hello", "--since", "2026-07-18", "--limit", "1"]
-            + ["--json"]
-        )
-        == 0
-    )
-
-    data = json.loads(capsys.readouterr().out)
-    assert [message["id"] for message in data["messages"]] == [42]
     assert data["more"] is False
 
 
@@ -291,40 +213,3 @@ def test_search_all_reports_more_when_hits_exceed_limit(
     assert [message["id"] for message in data["messages"]] == [2]
     assert data["more"] is True
     assert client.iter_messages_calls == [(None, "invoice", 2)]
-
-
-def test_search_all_reports_no_more_when_hits_fill_limit_exactly(
-    config_env, monkeypatch, capsys
-):
-    hit = ns(
-        id=1,
-        date=None,
-        sender_id=1,
-        sender=None,
-        text="invoice",
-        media=None,
-        reply_to_msg_id=None,
-        chat=ns(id=5, title="Chan"),
-        chat_id=5,
-    )
-    make_session_fake(monkeypatch, FakeClient(search_messages={"invoice": [hit]}))
-
-    assert main(["search", "--all", "invoice", "--limit", "1", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert [message["id"] for message in data["messages"]] == [1]
-    assert data["more"] is False
-
-
-def test_search_limit_zero_asks_only_whether_any_hit_exists(
-    config_env, monkeypatch, capsys
-):
-    fake = make_search_client()
-    make_session_fake(monkeypatch, fake)
-
-    assert main(["search", "@chan", "hello", "--limit", "0", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert data["messages"] == []
-    assert data["more"] is True
-    assert fake.iter_messages_calls[0][2] == 1

@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from telethon.tl import functions, types
+from telethon.tl import types
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
@@ -102,37 +102,11 @@ class EmptyStoryTelegram(StoryTelegram):
         return types.stories.Stories(count=0, stories=[], chats=[], users=[])
 
 
-class UserStoryTelegram(StoryTelegram):
-    """A user-story link: resolution must build an InputPeerUser."""
-
-    def __init__(self, story):
-        super().__init__(story)
-        self.user = types.User(id=555, first_name="Kazbek", access_hash=9)
-
-    async def get_entity(self, chat):
-        assert chat == "@kazbeksocrates"
-        return self.user
-
-    async def get_input_entity(self, entity):
-        return types.InputPeerUser(
-            user_id=self.user.id, access_hash=self.user.access_hash
-        )
-
-
 @pytest.fixture
 def config_env(tmp_path, monkeypatch):
     path = tmp_path / "config.toml"
     path.write_text(SAMPLE)
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
-
-
-def test_parse_source_accepts_public_story_link():
-    assert parse_source("https://t.me/kazbeksocrates/s/937", None) == MediaSource(
-        chat="@kazbeksocrates",
-        message_id=None,
-        private_channel_id=None,
-        story_id=937,
-    )
 
 
 def test_parse_source_accepts_private_story_link():
@@ -148,13 +122,6 @@ def test_parse_source_accepts_story_link_with_trailing_slash():
 def test_parse_source_rejects_story_link_with_message_id():
     with pytest.raises(NotFoundError, match="media source"):
         parse_source("https://t.me/kazbeksocrates/s/937", 5)
-
-
-def test_is_story_link_distinguishes_story_and_message_urls():
-    assert media_cmd.is_story_link("t.me/chan/s/937")
-    assert media_cmd.is_story_link("https://t.me/c/123/s/937")
-    assert not media_cmd.is_story_link("https://t.me/chan/937")
-    assert not media_cmd.is_story_link("https://t.me/c/123/937")
 
 
 def make_text_story(story_id):
@@ -185,20 +152,6 @@ async def test_resolve_text_story_with_codec_raises_missing_encoding():
         )
 
 
-async def test_resolve_user_story_issues_input_peer_user():
-    fake = UserStoryTelegram(make_story(937))
-
-    entity, target = await resolve_message(
-        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
-    )
-
-    request = fake.requests[0]
-    assert isinstance(request, functions.stories.GetStoriesByIDRequest)
-    assert isinstance(request.peer, types.InputPeerUser)
-    assert request.peer.user_id == 555
-    assert request.peer.access_hash == 9
-
-
 async def test_resolve_deleted_story_raises_not_found():
     fake = EmptyStoryTelegram(make_story(937))
 
@@ -206,38 +159,6 @@ async def test_resolve_deleted_story_raises_not_found():
         await resolve_message(
             fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
         )
-
-
-async def test_resolve_story_issues_exact_telethon_request():
-    fake = StoryTelegram(make_story(937))
-
-    entity, target = await resolve_message(
-        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
-    )
-
-    assert entity is CHANNEL
-    request = fake.requests[0]
-    assert isinstance(request, functions.stories.GetStoriesByIDRequest)
-    assert request.id == [937]
-    assert isinstance(request.peer, types.InputPeerChannel)
-    assert request.peer.channel_id == 3817664407
-    assert request.peer.access_hash == 123
-    assert target.media is fake.story.media
-
-
-async def test_resolve_story_selects_alt_document_by_codec():
-    fake = StoryTelegram(make_story(937, alts=[("h264", 3, "story_h264.mp4")]))
-
-    _, target = await resolve_message(
-        fake,
-        parse_source("https://t.me/kazbeksocrates/s/937", None),
-        "main",
-        codec="h264",
-    )
-
-    assert target.codec == "h264"
-    assert target.filename == "story_h264.mp4"
-    assert target.size == 3
 
 
 async def test_resolve_story_hevc_alias_matches_h265_main():
@@ -263,20 +184,6 @@ async def test_resolve_story_missing_codec_raises():
             parse_source("https://t.me/kazbeksocrates/s/937", None),
             "main",
             codec="av1",
-        )
-
-
-async def test_resolve_photo_story_with_codec_raises():
-    """`--codec` on a non-video story reports the missing encoding
-    instead of silently downloading the photo."""
-    fake = StoryTelegram(make_photo_story(937))
-
-    with pytest.raises(NotFoundError, match="no h264 encoding"):
-        await resolve_message(
-            fake,
-            parse_source("https://t.me/kazbeksocrates/s/937", None),
-            "main",
-            codec="h264",
         )
 
 

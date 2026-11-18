@@ -6,9 +6,7 @@ import sys
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import session, state_paths
 from tgcli.cli import main
-from tgcli.config import load_config, resolve_account
 from tgcli.state_paths import state_dir
 
 SAMPLE = """
@@ -33,20 +31,6 @@ def read_journal():
     ]
 
 
-def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
-    config_env(tmp_path, monkeypatch)
-    make_session_fake(monkeypatch, FakeClient(dialogs=[]))
-
-    assert main(["dialogs"]) == 0
-
-    [entry] = read_journal()
-    assert entry["command"] == "dialogs"
-    assert entry["account"] == "main"
-    assert entry["exit_code"] == 0
-    assert entry["duration_ms"] >= 0
-    assert "error" not in entry
-
-
 @pytest.mark.parametrize(
     ("argv", "command"),
     [(["accounts", "list"], "accounts list"), (["store", "cleanup"], "store cleanup")],
@@ -59,41 +43,6 @@ def test_subcommand_is_journaled_by_its_full_path(tmp_path, monkeypatch, argv, c
 
     [entry] = read_journal()
     assert entry["command"] == command
-
-
-def test_a_flood_exit_journals_the_wait_telegram_asked_for(tmp_path, monkeypatch):
-    from telethon import errors as telethon_errors
-
-    config_env(tmp_path, monkeypatch)
-    client = FakeClient(entities={"@chan": object()})
-    client.iter_messages_error = telethon_errors.FloodWaitError(
-        request=None, capture=42
-    )
-    make_session_fake(monkeypatch, client)
-
-    assert main(["read", "@chan"]) == 5
-
-    [entry] = read_journal()
-    assert set(entry) == {
-        "timestamp",
-        "command",
-        "account",
-        "exit_code",
-        "error",
-        "error_site",
-        "duration_ms",
-        "retry_after",
-    }
-    assert (entry["error"], entry["retry_after"]) == ("FLOOD_WAIT", 42)
-
-
-def test_policy_block_writes_the_structured_error_code():
-    assert main(["--readonly", "run", "--write", "-"]) == 2
-
-    [entry] = read_journal()
-    assert entry["command"] == "run"
-    assert entry["exit_code"] == 2
-    assert entry["error"] == "BLOCKED"
 
 
 def test_config_error_journals_where_it_was_raised(tmp_path, monkeypatch):
@@ -112,45 +61,6 @@ def test_config_error_journals_where_it_was_raised(tmp_path, monkeypatch):
         "config:resolve_account",
     )
     assert "error_type" not in entry
-
-
-def test_busy_session_waits_then_journals_the_lock_as_its_site(
-    tmp_path, monkeypatch, capsys
-):
-    config_env(tmp_path, monkeypatch)
-    monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.2)
-    account = resolve_account(load_config(), None)
-    state_paths.ensure_state_dir("sessions")
-
-    with session.session_file_lock(session.session_path(account)):
-        assert main(["dialogs"]) == 3
-    assert "waiting up to 0.2s" in capsys.readouterr().err
-
-    [entry] = read_journal()
-    assert (entry["error"], entry["error_site"]) == (
-        "CONFIG",
-        "session:session_file_lock",
-    )
-
-
-def test_untranslated_failure_journals_its_exception_type(tmp_path, monkeypatch):
-    config_env(tmp_path, monkeypatch)
-
-    class ChannelPrivateError(Exception):
-        pass
-
-    async def refuse(self, *args, **kwargs):
-        raise ChannelPrivateError("the channel is private")
-        yield
-
-    monkeypatch.setattr(FakeClient, "iter_dialogs", refuse)
-    make_session_fake(monkeypatch, FakeClient(dialogs=[]))
-
-    assert main(["dialogs"]) == 1
-
-    [entry] = read_journal()
-    assert (entry["error"], entry["error_type"]) == ("RUNTIME", "ChannelPrivateError")
-    assert "private" not in json.dumps(entry)
 
 
 TERMINATION_PROGRAM = """

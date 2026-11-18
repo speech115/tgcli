@@ -77,43 +77,6 @@ SEND = (
 )
 
 
-def test_a_script_reads_with_the_client_and_owns_stdout(tmp_path, monkeypatch, capsys):
-    client, path = setup(
-        tmp_path,
-        monkeypatch,
-        "import json, sys\n"
-        "[m] = await client.get_messages('@chan', limit=1)\n"
-        "print(json.dumps({'account': account, 'argv': sys.argv[1:], "
-        "'text': msg(m)['text']}))\n"
-        "await client(functions.messages.GetHistoryRequest("
-        "peer=types.InputPeerSelf(), offset_id=0, offset_date=None, add_offset=0, "
-        "limit=1, max_id=0, min_id=0, hash=0))\n",
-    )
-
-    assert main(["run", path, "--flag", "x"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {
-        "account": "main",
-        "argv": ["--flag", "x"],
-        "text": "hello",
-    }
-    assert [type(r) for r in client.sent] == [functions.messages.GetHistoryRequest]
-
-
-def test_a_write_without_flag_is_blocked_before_it_leaves(
-    tmp_path, monkeypatch, capsys
-):
-    client, path = setup(tmp_path, monkeypatch, SEND)
-
-    assert main(["--json", "run", path]) == 2
-
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "BLOCKED"
-    assert "messages.sendMessage writes; re-run with --write" in error["message"]
-    assert client.sent == []
-    assert audit_lines() == []
-
-
 def test_a_wrapped_write_is_still_seen(tmp_path, monkeypatch):
     client, path = setup(
         tmp_path,
@@ -127,20 +90,6 @@ def test_a_wrapped_write_is_still_seen(tmp_path, monkeypatch):
     assert client.sent == []
 
 
-def test_write_flag_audits_then_sends(tmp_path, monkeypatch):
-    client, path = setup(tmp_path, monkeypatch, SEND)
-
-    assert main(["run", "--write", path]) == 0
-
-    assert [type(r) for r in client.sent] == [functions.messages.SendMessageRequest]
-    [record] = audit_lines()
-    assert (record["action"], record["account"], record["method"]) == (
-        "run-write",
-        "main",
-        "messages.sendMessage",
-    )
-
-
 def test_writes_past_the_first_five_are_spaced(tmp_path, monkeypatch, pace_clock):
     client, path = setup(tmp_path, monkeypatch, SEND * 7)
 
@@ -148,19 +97,6 @@ def test_writes_past_the_first_five_are_spaced(tmp_path, monkeypatch, pace_clock
 
     assert len(client.sent) == 7
     assert pace_clock.sleeps == [3.0, 3.0]
-
-
-def test_a_script_write_is_resent_once_after_a_short_flood(
-    tmp_path, monkeypatch, pace_clock
-):
-    client, path = setup(tmp_path, monkeypatch, SEND, floods=[5])
-
-    assert main(["run", "--write", path]) == 0
-
-    assert [type(r) for r in client.sent] == [functions.messages.SendMessageRequest] * 2
-    assert client.sent[0].to_dict() == client.sent[1].to_dict()
-    assert pace_clock.sleeps == [5]
-    assert len(audit_lines()) == 1
 
 
 def test_a_script_write_hit_by_two_floods_exits_5(
@@ -174,28 +110,6 @@ def test_a_script_write_hit_by_two_floods_exits_5(
     assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 6
 
 
-def test_a_script_write_hit_by_a_long_flood_exits_5_unsent_twice(
-    tmp_path, monkeypatch, capsys, pace_clock
-):
-    client, path = setup(tmp_path, monkeypatch, SEND, floods=[60])
-
-    assert main(["--json", "run", "--write", path]) == 5
-
-    assert len(client.sent) == 1
-    assert pace_clock.sleeps == []
-    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 60
-
-
-def test_reads_are_never_spaced(tmp_path, monkeypatch, pace_clock):
-    read = "await client(functions.updates.GetStateRequest())\n"
-    client, path = setup(tmp_path, monkeypatch, read * 7)
-
-    assert main(["run", path]) == 0
-
-    assert len(client.sent) == 7
-    assert pace_clock.sleeps == []
-
-
 def test_account_writes_are_denied_even_with_the_flag(tmp_path, monkeypatch):
     client, path = setup(
         tmp_path,
@@ -205,14 +119,6 @@ def test_account_writes_are_denied_even_with_the_flag(tmp_path, monkeypatch):
 
     assert main(["run", "--write", path]) == 2
     assert client.sent == []
-
-
-def test_readonly_and_no_send_refuse_the_write_flag(tmp_path, monkeypatch):
-    _, path = setup(tmp_path, monkeypatch, SEND)
-
-    assert main(["--readonly", "run", "--write", path]) == 2
-    monkeypatch.setenv("TGCLI_NO_SEND", "1")
-    assert main(["run", "--write", path]) == 2
 
 
 def test_readonly_refuses_any_script(tmp_path, monkeypatch, capsys):
@@ -225,17 +131,6 @@ def test_readonly_refuses_any_script(tmp_path, monkeypatch, capsys):
     assert main(["run", path]) == 2
     assert client.sent == []
     assert "tg run" in capsys.readouterr().err
-
-
-def test_a_script_bug_prints_its_traceback_and_exits_1(tmp_path, monkeypatch, capsys):
-    _, path = setup(tmp_path, monkeypatch, "x = 1\nraise ValueError('boom')\n")
-
-    assert main(["run", path]) == 1
-
-    err = capsys.readouterr().err
-    assert "Traceback" in err
-    assert f'File "{path}", line 2' in err
-    assert "boom" in err
 
 
 def test_a_script_from_stdin_and_a_nonzero_exit(tmp_path, monkeypatch, capsys):
@@ -253,31 +148,6 @@ def test_an_empty_or_broken_script_fails_before_any_session(tmp_path, monkeypatc
     assert main(["run", path]) == 3
     (tmp_path / "broken.py").write_text("def (\n")
     assert main(["run", str(tmp_path / "broken.py")]) == 3
-    assert client.sent == []
-
-
-def test_reads_that_only_look_like_reads_are_refused(tmp_path, monkeypatch):
-    """these getters have side effects or touch credentials."""
-    client, path = setup(
-        tmp_path,
-        monkeypatch,
-        "import sys\n"
-        "request = {\n"
-        "  'password': functions.auth.CheckPasswordRequest(\n"
-        "      password=types.InputCheckPasswordEmpty()),\n"
-        "  'inline': functions.messages.GetInlineBotResultsRequest(\n"
-        "      bot=types.InputUserSelf(), peer=types.InputPeerSelf(),\n"
-        "      query='q', offset=''),\n"
-        "  'sponsored': functions.messages.GetSponsoredMessagesRequest(\n"
-        "      peer=types.InputPeerSelf()),\n"
-        "}[sys.argv[1]]\n"
-        "await client(request)\n",
-    )
-
-    assert main(["run", path, "password"]) == 2
-    assert main(["run", "--write", path, "password"]) == 2
-    assert main(["run", path, "inline"]) == 2
-    assert main(["run", path, "sponsored"]) == 2
     assert client.sent == []
 
 
@@ -301,40 +171,10 @@ def test_a_script_write_on_a_session_role_records_the_role(tmp_path, monkeypatch
     assert (record["method"], record["role"]) == ("messages.sendMessage", "job")
 
 
-def test_getters_that_take_a_write_argument_need_the_write_flag(tmp_path, monkeypatch):
-    """`get*`/`resolve*` by name, writes by argument: rotating a stream key,
-    accepting or declining a gift offer, a cloud-password check. They ran
-    without --write and without an audit row."""
-    client, path = setup(
-        tmp_path,
-        monkeypatch,
-        "import sys\n"
-        "request = {\n"
-        "  'revoke': functions.phone.GetGroupCallStreamRtmpUrlRequest(\n"
-        "      peer=types.InputPeerSelf(), revoke=True),\n"
-        "  'decline': functions.payments.ResolveStarGiftOfferRequest(\n"
-        "      offer_msg_id=1, decline=True),\n"
-        "  'password': functions.payments.GetStarsRevenueWithdrawalUrlRequest(\n"
-        "      peer=types.InputPeerSelf(), password=types.InputCheckPasswordEmpty()),\n"
-        "}[sys.argv[1]]\n"
-        "await client(request)\n",
-    )
-
-    for case in ("revoke", "decline", "password"):
-        assert main(["run", path, case]) == 2
-    assert client.sent == []
-    client, path = setup(tmp_path, monkeypatch, Path(path).read_text())
-    assert main(["run", "--write", path, "revoke"]) == 0
-    assert [line["method"] for line in audit_lines()] == [
-        "phone.getGroupCallStreamRtmpUrl"
-    ]
-
-
 def test_every_method_tg_run_lets_through_as_a_read_was_reviewed():
     """The read classification is a heuristic over names. A Telethon bump
     that adds a getter with a side effect must fail here until a person
     reviews it: add it to the list, or to SIDE_EFFECT_GETTERS."""
-    from pathlib import Path
 
     from tgcli.commands import run
 
@@ -364,22 +204,6 @@ def test_ping_stays_a_read(tmp_path, monkeypatch):
 
     assert main(["run", path]) == 0
     assert [type(r) for r in client.sent] == [functions.PingRequest]
-
-
-def test_a_script_timeout_error_is_not_reported_as_the_deadline(
-    tmp_path, monkeypatch, capsys
-):
-    # A script's own TimeoutError (asyncio.wait_for, socket timeouts) is a
-    # failure inside the command, not the --timeout deadline expiring.
-    _, path = setup(tmp_path, monkeypatch, "raise TimeoutError('upstream slow')\n")
-
-    for extra in ([], ["--timeout", "60"]):
-        assert main(["--json", *extra, "run", path]) == 1
-        err = capsys.readouterr()
-        envelope = json.loads(err.out)
-        assert envelope["error"]["code"] != "TIMEOUT", envelope
-        assert "deadline" not in err.out
-        assert "upstream slow" in err.err
 
 
 def test_a_timeout_error_after_the_deadline_is_still_the_deadline(

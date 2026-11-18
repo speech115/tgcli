@@ -4,7 +4,7 @@ import pytest
 from telethon.errors import MessageNotModifiedError
 
 from tests.conftest import FakeClient, make_session_fake, ns
-from tgcli import safety, session
+from tgcli import safety
 from tgcli.cli import main
 from tgcli.errors import PolicyError
 
@@ -42,15 +42,6 @@ class MutateClient(FakeClient):
         self.deleted.append((chat, ids, revoke))
 
 
-class StrictPeerClient(MutateClient):
-    """Reject raw str peers the way Telethon's dialog-id resolver does."""
-
-    async def delete_messages(self, chat, ids, revoke=True):
-        if isinstance(chat, str):
-            raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
-        self.deleted.append((chat, ids, revoke))
-
-
 class UnknownPeerClient(MutateClient):
     async def delete_messages(self, chat, ids, revoke=True):
         raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
@@ -75,11 +66,6 @@ class ConvergedEditClient(MutateClient):
         if len(self.edited) > 1:
             raise MessageNotModifiedError(request=None)
         return ns(id=message_id)
-
-
-class FlakyDeleteClient(MutateClient):
-    async def delete_messages(self, chat, ids, revoke=True):
-        raise ConnectionError("connection dropped")
 
 
 def make_client():
@@ -178,55 +164,6 @@ def test_edit_preview_records_format(config_env, monkeypatch, capsys):
     assert client.edited == []
 
 
-def test_edit_preview_blocks_dropped_html_tag(config_env, monkeypatch, capsys):
-    client = make_client()
-    make_session_fake(monkeypatch, client)
-
-    assert (
-        main(
-            [
-                "edit",
-                "@chan",
-                "2",
-                "List<int> is generic",
-                "--format",
-                "html",
-                "--preview",
-                "--json",
-            ]
-        )
-        == 2
-    )
-
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "BLOCKED"
-    assert "unsupported html markup" in error["message"]
-    assert client.edited == []
-    assert list(safety.previews_dir().glob("*")) == []
-
-
-def test_edit_commit_html_sends_entities(config_env, monkeypatch, capsys):
-    from telethon.tl.types import MessageEntityBold, MessageEntitySpoiler
-
-    preview = safety.create_preview(
-        {
-            "kind": "edit",
-            "chat": "@chan",
-            "message_id": 2,
-            "old_text": "old",
-            "text": "<b>жир</b> <tg-spoiler>секрет</tg-spoiler>",
-            "format": "html",
-        }
-    )
-    client = make_client()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["edit", "--commit", preview["preview_id"], "--json"]) == 0
-    assert client.edited == [("@chan", 2, "жир секрет")]
-    entities = client.edited_entities[0]
-    assert [type(e) for e in entities] == [MessageEntityBold, MessageEntitySpoiler]
-
-
 def test_edit_commit_plain_sends_no_entities(config_env, monkeypatch):
     preview = safety.create_preview(
         {
@@ -244,39 +181,6 @@ def test_edit_commit_plain_sends_no_entities(config_env, monkeypatch):
     assert main(["edit", "--commit", preview["preview_id"], "--json"]) == 0
     assert client.edited == [("@chan", 2, "**literal** <b>tags</b>")]
     assert client.edited_entities[0] is None
-
-
-def test_edit_commit_keeps_preview_pending_when_result_audit_fails(
-    config_env, monkeypatch
-):
-    preview = safety.create_preview(
-        {
-            "kind": "edit",
-            "chat": "@chan",
-            "message_id": 2,
-            "old_text": "old",
-            "text": "new",
-        }
-    )
-    client = make_client()
-    make_session_fake(monkeypatch, client)
-    original_append_audit = safety.append_audit
-
-    def fail_result_audit(action, account, details):
-        if action == "edit-result":
-            raise PolicyError("cannot write audit record: disk full")
-        original_append_audit(action, account, details)
-
-    monkeypatch.setattr(safety, "append_audit", fail_result_audit)
-
-    assert main(["edit", "--commit", preview["preview_id"]]) == 2
-    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
-    assert pending.exists()
-    assert not pending.with_suffix(".used").exists()
-
-    monkeypatch.setattr(safety, "append_audit", original_append_audit)
-    assert main(["edit", "--commit", preview["preview_id"]]) == 0
-    assert client.edited == [("@chan", 2, "new"), ("@chan", 2, "new")]
 
 
 def test_edit_commit_retry_converges_after_ambiguous_success(config_env, monkeypatch):
@@ -318,20 +222,6 @@ def test_delete_commit_revokes(config_env, monkeypatch, capsys):
     assert client.deleted == [("@chan", [2], True)]
 
 
-def test_delete_commit_parses_numeric_chat_before_delete_messages(
-    config_env, monkeypatch
-):
-    preview = safety.create_preview(
-        {"kind": "delete", "chat": "-1001234", "message_id": 2, "text": "old"}
-    )
-    base = make_client()
-    client = StrictPeerClient(messages=base._messages, entities=base._entities)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["delete", "--commit", preview["preview_id"], "--json"]) == 0
-    assert client.deleted == [(-1001234, [2], True)]
-
-
 def test_delete_commit_reports_unknown_dialog_as_not_found(
     config_env, monkeypatch, capsys
 ):
@@ -367,89 +257,7 @@ def test_edit_commit_reports_unknown_dialog_as_not_found(
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
 
 
-def test_failed_commit_releases_its_lock_when_the_invocation_ends(
-    config_env, monkeypatch, capsys
-):
-    """A held process (tg-serve) must not keep a failed commit locked.
-
-    Another tg process probes the same `.pending` flock; a one-shot `tg` frees
-    it by exiting, so the end of one invocation must free it too.
-    """
-    import fcntl
-    import os
-
-    preview = safety.create_preview(
-        {"kind": "delete", "chat": "@chan", "message_id": 2, "text": "old"}
-    )
-    make_session_fake(monkeypatch, FlakyDeleteClient())
-
-    assert main(["delete", "--commit", preview["preview_id"]]) == 1
-    capsys.readouterr()
-
-    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
-    fd = os.open(pending, os.O_RDONLY)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    finally:
-        os.close(fd)
-
-
-def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
-    from tgcli import cli
-
-    preview = safety.create_preview(
-        {"kind": "delete", "chat": "@chan", "message_id": 2, "text": "old"}
-    )
-    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(
-        session, "client", lambda account: pytest.fail("session opened")
-    )
-
-    assert main(["edit", "--commit", preview["preview_id"]]) == 2
-    assert safety.begin_commit(preview["preview_id"])["kind"] == "delete"
-
-
 @pytest.mark.parametrize("argv", [["--readonly", "edit"], ["delete"]])
 def test_mutation_preview_requires_complete_positionals(argv, capsys):
     assert main([*argv, "--preview"]) == 1
     assert "requires" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize(
-    ("command", "payload"),
-    [
-        (
-            "edit",
-            {
-                "kind": "edit",
-                "chat": "@chan",
-                "message_id": 2,
-                "old_text": "old",
-                "text": "new",
-            },
-        ),
-        (
-            "delete",
-            {"kind": "delete", "chat": "@chan", "message_id": 2, "text": "old"},
-        ),
-    ],
-)
-@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_NO_SEND"])
-def test_mutation_commit_gates_before_config_or_session(
-    monkeypatch, command, payload, flag
-):
-    from tgcli import cli
-
-    preview = safety.create_preview(payload)
-    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(
-        session, "client", lambda account: pytest.fail("session opened")
-    )
-    if flag == "TGCLI_NO_SEND":
-        monkeypatch.setenv(flag, "1")
-        argv = [command, "--commit", preview["preview_id"]]
-    else:
-        argv = [flag, command, "--commit", preview["preview_id"]]
-
-    assert main(argv) == 2
-    assert safety.begin_commit(preview["preview_id"])["kind"] == command

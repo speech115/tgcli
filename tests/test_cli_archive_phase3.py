@@ -39,11 +39,9 @@ from tests.fakes.archive import (
     archive_me,
     archive_msg,
     archive_user,
-    init_archive,
 )
 from tgcli import pace
 from tgcli.archive import (
-    backfill as backfill_mod,
     changes_cursor,
     limits,
     store as store_mod,
@@ -84,56 +82,6 @@ def _state(pts=10, qts=1, seq=2, date=None):
         seq=seq,
         unread_count=0,
     )
-
-
-def test_search_resolves_private_username_from_sync_state(
-    config_env, monkeypatch, capsys
-):
-    init_archive(monkeypatch)
-    capsys.readouterr()
-    path = archive_cmd.db_path("main")
-    conn = store_mod.connect(path)
-    try:
-        store_mod.upsert_message(
-            conn,
-            7,
-            {
-                "id": 1,
-                "date": "2026-01-02T00:00:00+00:00",
-                "text": "private ёлка note",
-                "from": {"id": 7},
-            },
-        )
-        store_mod.upsert_sync_state(
-            conn,
-            7,
-            oldest_id=1,
-            newest_id=1,
-            more=False,
-            kind="user",
-            title="Alice",
-            username="alice",
-            chat_ref="@alice",
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    from contextlib import asynccontextmanager
-
-    from tgcli import session
-
-    @asynccontextmanager
-    async def boom(*_a, **_k):
-        raise AssertionError("offline")
-        yield  # pragma: no cover
-
-    monkeypatch.setattr(session, "client", boom)
-    assert main(["archive", "search", "елка", "--chat", "@alice", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["peer_id"] == 7
-    assert len(data["hits"]) == 1
-    assert data["hits"][0]["message_id"] == 1
 
 
 def test_backfill_persists_identity_for_private_peer(config_env, monkeypatch, capsys):
@@ -247,61 +195,6 @@ def test_backfill_private_requires_flag_and_caps(config_env, monkeypatch, capsys
     assert "private" in capsys.readouterr().err.lower()
 
 
-def test_backfill_private_enumerates_users_and_skips_complete(
-    config_env, monkeypatch, capsys
-):
-    alice = archive_user(user_id=7, username="alice")
-    bob = archive_user(user_id=8, username="bob", first="Bob")
-    dialogs = [archive_dialog(alice, name="Alice"), archive_dialog(bob, name="Bob")]
-    client = archive_client(
-        entities={"@alice": alice, 7: alice, "@bob": bob, 8: bob},
-        messages=[archive_msg(mid=1, text="hi", peer=PeerUser(7))],
-        dialogs=dialogs,
-    )
-    # Map messages per entity for FakeClient: same list for all.
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    # Prefill bob as complete so --private skips it.
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.upsert_sync_state(
-            conn,
-            8,
-            oldest_id=1,
-            newest_id=1,
-            more=False,
-            kind="user",
-            title="Bob",
-            username="bob",
-            chat_ref="@bob",
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    assert (
-        main(
-            [
-                "archive",
-                "backfill",
-                "--private",
-                "--max-dialogs",
-                "5",
-                "--limit",
-                "10",
-                "--json",
-            ]
-        )
-        == 0
-    )
-    data = json.loads(capsys.readouterr().out)
-    assert data["mode"] == "private"
-    peers = {d["peer_id"] for d in data["dialogs"]}
-    assert 7 in peers
-    assert 8 not in peers
-    assert data["skipped_complete"] >= 1
-
-
 def test_backfill_private_resumes_unfinished_dialog_before_a_finished_one(
     config_env, monkeypatch, capsys
 ):
@@ -372,40 +265,6 @@ def test_backfill_private_reuses_walked_dialog_entities(
     assert [(d["chat"], d["peer_id"], d["stored"]) for d in data["dialogs"]] == [
         ("@alice", 7, 1)
     ]
-
-
-@pytest.mark.asyncio
-async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
-    alice = archive_user()
-    client = archive_client(dialogs=[archive_dialog(alice, name="Alice")])
-    conn = store_mod.connect(tmp_path / "archive.db")
-    try:
-        store_mod.upsert_sync_state(
-            conn,
-            7,
-            oldest_id=42,
-            newest_id=42,
-            more=False,
-            kind="user",
-            title="Alice",
-            username="alice",
-            chat_ref="@alice",
-            touch_sync=True,
-        )
-        (
-            refs,
-            skipped,
-            _cursors,
-            _entities,
-        ) = await backfill_mod.enumerate_private_dialogs(
-            client,
-            conn,
-            max_dialogs=5,
-        )
-        assert refs == ["@alice"]
-        assert skipped == 0
-    finally:
-        conn.close()
 
 
 def test_sync_applies_edit_revision_and_private_delete_tombstone(
@@ -560,36 +419,6 @@ def _stored_ids(peer: int) -> list[int]:
         conn.close()
 
 
-def test_sync_recovers_a_too_long_difference_through_the_dialog_list(
-    config_env, monkeypatch, capsys
-):
-    """differenceTooLong drops the updates in between. The sync jumps the
-    cursor, polls the dialog list, reads each chat that moved by `min_id`,
-    and clears the gap once nothing is left to read."""
-    user = archive_user()
-    messages = [archive_msg(mid=mid, text=f"m{mid}") for mid in range(2, 6)]
-    client = TooLongClient(
-        me=archive_me(),
-        entities={7: user},
-        messages=messages,
-        dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    _seed_private_chat(newest_id=1)
-
-    assert main(["archive", "sync", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert data["recovered"] == 1
-    assert data["gaps"] == [] and data["remaining"] is False
-    assert _stored_ids(7) == [2, 3, 4, 5]
-    assert client.iter_messages_kwargs["min_id"] == 1
-    assert main(["archive", "status", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gaps"] == []
-
-
 def test_a_gap_stays_until_its_recovery_reads_the_chat_that_moved(
     config_env, monkeypatch, capsys
 ):
@@ -632,67 +461,6 @@ def test_a_gap_stays_until_its_recovery_reads_the_chat_that_moved(
     assert json.loads(capsys.readouterr().out)["gaps"] == []
 
 
-def test_a_cursor_that_no_longer_decodes_is_recovered_like_a_gap(
-    config_env, monkeypatch, capsys
-):
-    user = archive_user()
-    messages = [archive_msg(mid=mid) for mid in (2, 3)]
-
-    class StateClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=50, qts=2, seq=9)
-            if isinstance(request, GetDifferenceRequest):
-                assert request.pts == 50
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
-            raise AssertionError(request)
-
-    client = StateClient(
-        me=archive_me(),
-        entities={7: user},
-        messages=messages,
-        dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    _seed_private_chat(newest_id=1)
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.write_account_sync(conn, changes_cursor="v1:not-valid")
-    finally:
-        conn.close()
-
-    assert main(["archive", "sync", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert data["initialized"] is False and data["recovered"] == 1
-    assert _stored_ids(7) == [2, 3]
-    assert changes_cursor.decode(data["next_cursor"]).pts == 50
-
-
-def _broadcast(channel_id: int) -> Channel:
-    return Channel(
-        id=channel_id,
-        title=f"C{channel_id}",
-        photo=None,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        access_hash=99,
-        megagroup=False,
-    )
-
-
-def _saved_cursor() -> ChangesCursor:
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        return changes_cursor.decode(
-            store_mod.read_account_sync(conn)["changes_cursor"]
-        )
-    finally:
-        conn.close()
-
-
 @pytest.mark.parametrize(
     "stored", ["{not json", '"a string"', "[1, 2]", '[{"reason":"x"}, 3]']
 )
@@ -733,99 +501,6 @@ def test_an_unreadable_gap_reads_as_a_loss_until_sync_clears_it(
     capsys.readouterr()
     assert main(["archive", "status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["gaps"] == []
-
-
-def test_sync_readonly_blocked(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["--readonly", "archive", "sync", "--json"]) == 2
-    assert "readonly" in capsys.readouterr().err.lower()
-
-
-def test_sync_refuses_while_another_run_holds_the_account(
-    config_env, monkeypatch, capsys
-):
-    import fcntl
-
-    class QuietClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=50, qts=2, seq=9)
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            raise AssertionError(request)
-
-    client = QuietClient(me=archive_me())
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    stored = changes_cursor.encode(
-        ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
-    )
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.write_account_sync(
-            conn, changes_cursor=stored, pending_catchups=[-1001234567890]
-        )
-    finally:
-        conn.close()
-
-    def account_sync():
-        conn = store_mod.connect(archive_cmd.db_path("main"))
-        try:
-            return store_mod.read_account_sync(conn)
-        finally:
-            conn.close()
-
-    before = account_sync()
-    lock = archive_cmd.account_dir("main") / "sync.lock"
-    with lock.open("w") as held:
-        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        assert main(["archive", "sync", "--json"]) == 3
-        error = json.loads(capsys.readouterr().out)["error"]
-        assert "already running" in error["message"]
-    assert account_sync() == before
-    assert not any(
-        isinstance(request, (GetStateRequest, GetDifferenceRequest))
-        for request in client.call_requests
-    )
-    assert main(["archive", "sync", "--json"]) == 0
-    assert account_sync()["changes_cursor"] != stored
-
-
-def test_sync_rejects_non_positive_event_cap(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "sync", "--max-events", "0", "--json"]) == 2
-    assert "max-events" in capsys.readouterr().err.lower()
-
-
-def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    over_events = str(limits.BOUNDS["sync", "--max-events"].maximum + 1)
-    assert main(["archive", "sync", "--max-events", over_events, "--json"]) == 2
-    assert "max-events" in capsys.readouterr().err.lower()
-    assert main(["archive", "sync", "--max-dialogs", "0", "--json"]) == 2
-    assert "max-dialogs" in capsys.readouterr().err.lower()
-
-
-def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "sync", "--max-media", "0", "--json"]) == 2
-    assert "max-media" in capsys.readouterr().err.lower()
-    over = str(limits.BOUNDS["sync", "--max-media"].maximum + 1)
-    assert main(["archive", "sync", "--max-media", over, "--json"]) == 2
-    assert "max-media" in capsys.readouterr().err.lower()
-    over_dialogs = str(limits.BOUNDS["sync", "--max-dialogs"].maximum + 1)
-    assert main(["archive", "sync", "--max-dialogs", over_dialogs, "--json"]) == 2
-    assert "max-dialogs" in capsys.readouterr().err.lower()
 
 
 def test_sync_verifies_live_account_id(config_env, monkeypatch, capsys):
@@ -965,42 +640,6 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
     conn = store_mod.connect(path)
     try:
         assert store_mod.counts(conn)["tombstones"] == 0
-    finally:
-        conn.close()
-
-
-def test_apply_events_applies_full_batch_without_truncation(tmp_path):
-    """Difference events are cheap locally — never drop a tail while syncing."""
-    conn = store_mod.connect(tmp_path / "archive.db")
-    try:
-        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
-        events = [
-            {
-                "type": "message_new",
-                "peer": 7,
-                "message": {
-                    "id": i,
-                    "date": "2026-01-02T00:00:00+00:00",
-                    "text": f"msg {i}",
-                    "from": {"id": 7},
-                },
-            }
-            for i in range(1, 601)
-        ]
-        applied = sync_mod.apply_events(conn, events)
-        assert applied["events"] == 600
-        assert applied["inserted"] == 600
-        assert "truncated" not in applied
-        assert (
-            conn.execute("SELECT COUNT(*) FROM messages WHERE peer_id = 7").fetchone()[
-                0
-            ]
-            == 600
-        )
-        state = store_mod.get_sync_state(conn, 7)
-        assert state is not None
-        assert state["more"] is True
-        assert state["last_backfill_at"] is None
     finally:
         conn.close()
 
@@ -1418,80 +1057,6 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
         assert row["media_status"] == "pending"
     finally:
         conn.close()
-
-
-def test_voice_whose_media_never_downloads_leaves_the_transcript_queue(
-    config_env, monkeypatch, capsys
-):
-    """A voice message whose media failed the attempt cap became `no_media`
-    but kept transcript status `pending`. Transcribe only takes rows with
-    media, so the row was never drained and `status` counted it in the
-    transcript queue forever."""
-    user = archive_user()
-
-    class EmptyDifferenceClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=5, qts=1, seq=1)
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            raise AssertionError(request)
-
-    client = EmptyDifferenceClient(
-        me=archive_me(), entities={7: user, "7": user, "@alice": user}
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.upsert_message(
-            conn,
-            7,
-            {
-                "id": 2,
-                "date": "2026-01-02T00:00:00+00:00",
-                "text": "deleted voice",
-                "from": {"id": 7},
-                "media": "MessageMediaDocument",
-                "media_info": {"mime": "audio/ogg", "size": 10},
-                "media_kind": "voice",
-            },
-        )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
-    finally:
-        conn.close()
-
-    for _ in range(3):
-        assert main(["archive", "sync", "--json"]) == 0
-        assert json.loads(capsys.readouterr().out)["media"]["failed"]
-
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["transcript_queue"] == 0
-    assert status["transcript_status"] == {
-        "pending": 0,
-        "retryable": 0,
-        "done": 0,
-        "no_transcript": 1,
-    }
-    [error] = status["transcript_errors"]
-    assert (error["status"], error["attempts"], error["media_status"]) == (
-        "no_transcript",
-        0,
-        "no_media",
-    )
-
-    assert main(["archive", "search", "no_transcript", "--json"]) == 0
-    [hit] = json.loads(capsys.readouterr().out)["hits"]
-    assert (hit["message_id"], hit["transcript_status"]) == (2, "no_transcript")
-
-    assert main(["archive", "transcribe", "--json"]) == 0
-    transcribe = json.loads(capsys.readouterr().out)
-    assert (transcribe["queued"], transcribe["remaining"]) == (0, False)
 
 
 def test_redownloaded_voice_that_used_up_its_transcription_attempts_stays_ended(

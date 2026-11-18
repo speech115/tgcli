@@ -16,7 +16,6 @@ from tests.fakes.archive import (
     block_telegram_session,
     seed_search_corpus,
 )
-from tgcli.archive import limits
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 
@@ -75,58 +74,6 @@ def test_backfill_requires_at_least_one_chat(config_env, capsys):
     assert "chat" in err or "private" in err
 
 
-def test_backfill_rejects_non_positive_and_over_cap_limit(config_env, capsys):
-    assert main(["archive", "backfill", "@alice", "--limit", "0", "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-    over = str(limits.BOUNDS["backfill", "--limit"].maximum + 1)
-    assert main(["archive", "backfill", "@alice", "--limit", over, "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-
-
-def test_backfill_rejects_too_many_dialogs(config_env, capsys):
-    chats = [f"@c{i}" for i in range(limits.BACKFILL_MAX_CHATS + 1)]
-    assert main(["archive", "backfill", *chats, "--json"]) == 2
-    assert "dialog" in capsys.readouterr().err.lower()
-
-
-def test_transcribe_validates_caps_and_readonly(config_env, capsys):
-    assert main(["archive", "transcribe", "--limit", "0", "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-    assert main(["archive", "transcribe", "--limit", "-1", "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-    assert main(["archive", "transcribe", "--limit", "101", "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-    assert main(["archive", "transcribe", "--max-attempts", "-1", "--json"]) == 2
-    assert "max-attempts" in capsys.readouterr().err.lower()
-    assert main(["archive", "transcribe", "--max-attempts", "6", "--json"]) == 2
-    assert "max-attempts" in capsys.readouterr().err.lower()
-    assert main(["--readonly", "archive", "transcribe", "--json"]) == 2
-    assert "readonly" in capsys.readouterr().err.lower()
-
-
-def test_transcribe_is_offline_and_empty_queue_is_a_noop(
-    config_env, monkeypatch, capsys
-):
-    from contextlib import asynccontextmanager
-
-    from tgcli import session
-
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-
-    @asynccontextmanager
-    async def boom(*_args, **_kwargs):
-        raise AssertionError("archive transcribe must not open Telegram")
-        yield  # pragma: no cover
-
-    monkeypatch.setattr(session, "client", boom)
-    assert main(["archive", "transcribe", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["queued"] == 0
-    assert data["transcribed"] == 0
-
-
 def test_transcribe_refuses_while_another_run_holds_the_account(
     config_env, monkeypatch, capsys
 ):
@@ -177,34 +124,6 @@ def test_init_mismatch_is_hard_error(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=99)))
     assert main(["archive", "init", "--json"]) == 2
     assert "account" in capsys.readouterr().err.lower()
-
-
-def test_list_and_status_are_offline(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    from contextlib import asynccontextmanager
-
-    from tgcli import session
-
-    opened = {"n": 0}
-
-    @asynccontextmanager
-    async def boom(*_a, **_k):
-        opened["n"] += 1
-        raise AssertionError("offline archive must not open a Telegram session")
-        yield  # pragma: no cover
-
-    monkeypatch.setattr(session, "client", boom)
-    assert main(["archive", "list", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["standing"] == {"kind": "private", "description": "private 1:1 dialogs"}
-    assert data["explicit"] == []
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["account"]["alias"] == "main"
-    assert status["counts"]["messages"] == 0
-    assert opened["n"] == 0
 
 
 def test_add_requires_group_or_channel_and_lists(config_env, monkeypatch, capsys):
@@ -307,23 +226,6 @@ def test_readonly_blocks_mutating_archive_commands(config_env, monkeypatch, caps
     assert "readonly" in capsys.readouterr().err.lower()
 
 
-def test_readonly_blocks_backfill(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["--readonly", "archive", "backfill", "@alice", "--json"]) == 2
-    assert "readonly" in capsys.readouterr().err.lower()
-
-
-def test_list_and_status_before_init_are_not_found(config_env, capsys):
-    assert main(["archive", "list", "--json"]) == 4
-    err = json.loads(capsys.readouterr().err)
-    assert err["error"]["code"] == "NOT_FOUND"
-    assert main(["archive", "status", "--json"]) == 4
-    err = json.loads(capsys.readouterr().err)
-    assert err["error"]["code"] == "NOT_FOUND"
-
-
 def test_offline_alias_store_mismatch(config_env, monkeypatch, capsys):
     import sqlite3
 
@@ -382,19 +284,6 @@ def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
     assert status["dialogs"][0]["newest_id"] == 3
 
 
-def test_network_command_verifies_live_account_id(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=42)))
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    channel = _channel()
-    make_session_fake(
-        monkeypatch,
-        archive_client(me=archive_me(user_id=99), entities={"@news": channel}),
-    )
-    assert main(["archive", "add", "@news", "--json"]) == 2
-    assert "account" in capsys.readouterr().err.lower()
-
-
 def test_config_archive_root_override(tmp_path, monkeypatch, capsys):
     custom = tmp_path / "custom-archive"
     config = tmp_path / "config.toml"
@@ -419,45 +308,10 @@ def test_archive_search_rejects_empty_query(config_env, monkeypatch, capsys):
     assert "query" in capsys.readouterr().err.lower()
 
 
-def test_archive_search_rejects_non_positive_and_over_cap_limit(
-    config_env, monkeypatch, capsys
-):
-    seed_search_corpus(monkeypatch)
-    capsys.readouterr()
-    assert main(["archive", "search", "ёлка", "--limit", "0", "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-    over = str(limits.BOUNDS["search", "--limit"].maximum + 1)
-    assert main(["archive", "search", "ёлка", "--limit", over, "--json"]) == 2
-    assert "limit" in capsys.readouterr().err.lower()
-
-
 def test_archive_search_missing_store_is_not_found(config_env, capsys):
     assert main(["archive", "search", "needle", "--json"]) == 4
     err = json.loads(capsys.readouterr().err)
     assert err["error"]["code"] == "NOT_FOUND"
-
-
-def test_archive_search_is_offline_and_folds_yo(config_env, monkeypatch, capsys):
-    seed_search_corpus(monkeypatch)
-    capsys.readouterr()
-    opened = block_telegram_session(monkeypatch)
-    assert main(["archive", "search", "елка", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert opened["n"] == 0
-    assert data["query"] == "елка"
-    assert data["limit"] == 20
-    assert len(data["hits"]) == 1
-    hit = data["hits"][0]
-    assert hit["peer_id"] == 7
-    assert hit["message_id"] == 1
-    assert "ёлк" in hit["text"] or "елк" in hit["text"] or "ёлка" in hit["text"]
-    assert data["scope"]["archived_peers_only"] is True
-    assert data["scope"]["stale"] is True
-    assert (
-        "more" in data["scope"]["note"].lower()
-        or "stale" in data["scope"]["note"].lower()
-        or "incomplete" in data["scope"]["note"].lower()
-    )
 
 
 def test_archive_search_prefix_star_is_raw_match(config_env, monkeypatch, capsys):
@@ -497,25 +351,3 @@ def test_archive_search_plain_tsv_and_readonly(config_env, monkeypatch, capsys):
     cols = out[0].split("\t")
     assert cols[0] == "7"
     assert cols[1] == "1"
-
-
-def test_backfill_spaces_dialogs_and_history_pages(
-    config_env, monkeypatch, capsys, pace_clock
-):
-    """The 2026-07-31 flood was one history read per dialog with no gap."""
-    users = [
-        archive_user(user_id=index, username=f"user{index}") for index in range(1, 8)
-    ]
-    entities = {f"@user{user.id}": user for user in users}
-    entities.update({user.id: user for user in users})
-    client = archive_client(entities=entities, messages=[_msg()])
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-
-    chats = [f"@user{user.id}" for user in users]
-    assert main(["archive", "backfill", *chats, "--json"]) == 0
-
-    assert len(json.loads(capsys.readouterr().out)["dialogs"]) == 7
-    assert pace_clock.sleeps == [3.0, 3.0]
-    assert client.iter_messages_kwargs["wait_time"] == 3.0

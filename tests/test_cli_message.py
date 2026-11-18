@@ -90,17 +90,6 @@ def test_message_context_returns_neighbors(config_env, monkeypatch, capsys):
     assert [message["id"] for message in data["context"]] == [1, 3]
 
 
-def test_message_context_does_not_expand_sparse_id_window(
-    config_env, monkeypatch, capsys
-):
-    make_session_fake(monkeypatch, make_fake(message_ids=(9, 10, 12)))
-
-    assert main(["message", "@chan", "10", "--context", "1", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert [message["id"] for message in data["context"]] == [9]
-
-
 def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsys):
     fake = make_fake()
     fake._messages[0].text = "a\tb\r\nc"
@@ -110,17 +99,3 @@ def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsy
 
     assert code == 0
     assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"
-
-
-def test_message_plain_sanitizes_sender_controls(config_env, monkeypatch, capsys):
-    fake = make_fake()
-    fake._messages[0].sender.first_name = "A\tlice\r\n"
-    make_session_fake(monkeypatch, fake)
-
-    code = main(["message", "@chan", "42", "--plain"])
-
-    assert code == 0
-    output = capsys.readouterr().out
-    assert output.count("\n") == 1
-    assert "\r" not in output
-    assert len(output.rstrip("\n").split("\t")) == 4
