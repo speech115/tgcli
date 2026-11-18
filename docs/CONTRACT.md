@@ -1210,7 +1210,7 @@ case-insensitive title substring. A token from another peer class does not
 match (ADR-0104). JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"retry_not_before":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"retry_not_before":null,"comments":"enabled","discussion_linked":true,"schema_version":4,"integrity":"ok"}]}
 ```
 
 `retry_not_before` is the ISO-8601 UTC time a FloodWait that ended a

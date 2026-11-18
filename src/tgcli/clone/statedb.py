@@ -19,7 +19,7 @@ from typing import Any
 from tgcli.errors import PolicyError
 from tgcli.state_paths import create_private, ensure_parent_dir, restrict_file
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 META_FIELDS = (
     "version",
@@ -47,13 +47,15 @@ META_FIELDS = (
 
 
 class MapTable(StrEnum):
-    """The five ``(source, dest)`` tables; the value is the SQL table name."""
+    """The ``(source, dest)`` tables; the value is the SQL table name."""
 
     ID_MAP = "id_map"
     DISCUSSION_ID_MAP = "discussion_id_map"
     TOPIC_MAP = "topic_map"
     AVATAR_PHOTO_IDS = "avatar_photo_ids"
     ANCHOR_MAP = "anchor_map"
+    CAPTION_REST_MAP = "caption_rest_map"
+    DISCUSSION_CAPTION_REST_MAP = "discussion_caption_rest_map"
 
 
 # One queued write: upsert ``source -> dest``, or delete ``source`` when
@@ -105,6 +107,14 @@ CREATE TABLE IF NOT EXISTS anchor_map (
     source INTEGER PRIMARY KEY,
     dest INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS caption_rest_map (
+    source INTEGER PRIMARY KEY,
+    dest INTEGER NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS discussion_caption_rest_map (
+    source INTEGER PRIMARY KEY,
+    dest INTEGER NOT NULL UNIQUE
+);
 """
 
 # Forward-only, one entry per schema version above 1. A clone database holds
@@ -121,6 +131,14 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
     3: (
         "CREATE TABLE IF NOT EXISTS anchor_map "
         "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL)",
+    ),
+    # Source message -> the message that carries the rest of its split
+    # caption, per leg, so the next run's tail guard knows it as the clone's.
+    4: (
+        "CREATE TABLE IF NOT EXISTS caption_rest_map "
+        "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL UNIQUE)",
+        "CREATE TABLE IF NOT EXISTS discussion_caption_rest_map "
+        "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL UNIQUE)",
     ),
 }
 

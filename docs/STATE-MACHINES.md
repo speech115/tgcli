@@ -202,7 +202,9 @@ Invariants:
 - **L2.** A batch that Telegram accepted but tgcli did not record (crash
   between send and save) is detected before the next copy: `verify_tail`
   refuses any ordinary destination message above the highest mapped id
-  (exit 2, manual repair). This is the ADR-0017 "at most one duplicated batch"
+  (exit 2, manual repair). The message carrying the rest of a split caption
+  is recorded (`caption_rest_map`, `discussion_caption_rest_map`) and counts
+  as mapped. This is the ADR-0017 "at most one duplicated batch"
   bound, made loud.
 - **L3.** The reupload cache (`clones/<id>-media`) is cleared only after the
   batch's mapping is saved, so a crash resumes the download. A finished

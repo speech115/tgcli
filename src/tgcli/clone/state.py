@@ -160,6 +160,13 @@ class CloneState:
     # Source discussion anchor id -> destination anchor id, so a later run
     # places a comment without re-reading either anchor.
     anchor_map: dict[SourceCommentId, DestCommentId] = field(default_factory=dict)
+    # Source message -> the message carrying the rest of its split caption.
+    # Not copies of source messages, but the clone's own: the tail guard counts
+    # them (`max_destination_id`).
+    caption_rest_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
+    discussion_caption_rest_map: dict[SourceCommentId, DestCommentId] = field(
+        default_factory=dict
+    )
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
     # Map writes since the last save; ``save`` applies them in order. A state
@@ -209,6 +216,20 @@ class CloneState:
         self.anchor_map[source_anchor_id] = destination_anchor_id
         self._pending.append(
             (MapTable.ANCHOR_MAP, source_anchor_id, destination_anchor_id)
+        )
+
+    def record_caption_rest(
+        self, source_id: SourcePostId, destination_id: DestPostId
+    ) -> None:
+        self.caption_rest_map[source_id] = destination_id
+        self._pending.append((MapTable.CAPTION_REST_MAP, source_id, destination_id))
+
+    def record_discussion_caption_rest(
+        self, source_id: SourceCommentId, destination_id: DestCommentId
+    ) -> None:
+        self.discussion_caption_rest_map[source_id] = destination_id
+        self._pending.append(
+            (MapTable.DISCUSSION_CAPTION_REST_MAP, source_id, destination_id)
         )
 
     def anchor_dest_for(
@@ -268,10 +289,23 @@ class CloneState:
         self.retry_not_before = (_now() + timedelta(seconds=seconds)).isoformat()
 
     def max_destination_id(self) -> int | None:
-        return max([*self.id_map.values(), *self.topic_map.values()], default=None)
+        return max(
+            [
+                *self.id_map.values(),
+                *self.topic_map.values(),
+                *self.caption_rest_map.values(),
+            ],
+            default=None,
+        )
 
     def max_discussion_destination_id(self) -> int | None:
-        return max(self.discussion_id_map.values(), default=None)
+        return max(
+            [
+                *self.discussion_id_map.values(),
+                *self.discussion_caption_rest_map.values(),
+            ],
+            default=None,
+        )
 
 
 def _check_discussion(state: CloneState) -> None:
@@ -318,8 +352,14 @@ def _check(state: CloneState) -> None:
         and not 1 <= state.pinned_dest_id <= _TL_INT_MAX
     ) or (state.pin_occupied and state.pinned_dest_id is not None):
         raise ValueError("inconsistent pin state")
-    if not _in_tl_range(state.id_map.items(), 1) or not _in_tl_range(
-        state.anchor_map.items(), 1
+    if not all(
+        _in_tl_range(mapping.items(), 1)
+        for mapping in (
+            state.id_map,
+            state.anchor_map,
+            state.caption_rest_map,
+            state.discussion_caption_rest_map,
+        )
     ):
         raise ValueError("invalid id map")
     if (
@@ -347,6 +387,13 @@ def _from_rows(
         avatar_photo_ids=maps[MapTable.AVATAR_PHOTO_IDS],
         anchor_map=cast(
             "dict[SourceCommentId, DestCommentId]", maps[MapTable.ANCHOR_MAP]
+        ),
+        caption_rest_map=cast(
+            "dict[SourcePostId, DestPostId]", maps[MapTable.CAPTION_REST_MAP]
+        ),
+        discussion_caption_rest_map=cast(
+            "dict[SourceCommentId, DestCommentId]",
+            maps[MapTable.DISCUSSION_CAPTION_REST_MAP],
         ),
     )
     _check(loaded)
