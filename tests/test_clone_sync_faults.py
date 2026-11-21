@@ -36,13 +36,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from hypothesis import event, settings, strategies as st
+from hypothesis import event, seed, settings, strategies as st
 from hypothesis.stateful import (
     RuleBasedStateMachine,
     initialize,
     invariant,
     precondition,
     rule,
+    run_state_machine_as_test,
 )
 from telethon.tl import types
 
@@ -289,10 +290,24 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         self.directory.cleanup()
 
 
-CloneSyncFaultMachine.TestCase.settings = settings(
-    max_examples=int(__import__("os").environ.get("FUZZ_N", 200)),
-    stateful_step_count=8,
-    derandomize=True,
-    deadline=None,
-)
-TestCloneSyncFaultMachine = CloneSyncFaultMachine.TestCase
+FUZZ_N = int(__import__("os").environ.get("FUZZ_N", 200))
+# Separate tests let xdist spread the unchanged example budget across workers.
+SHARDS = min(50, max(1, FUZZ_N))
+
+
+@pytest.mark.parametrize("shard", range(SHARDS))
+def test_clone_sync_faults(shard):
+    # Explicit seeds distinguish factories with identical source under derandomize.
+    @seed(shard)
+    def machine():
+        return CloneSyncFaultMachine()
+
+    run_state_machine_as_test(
+        machine,
+        settings=settings(
+            max_examples=FUZZ_N // SHARDS + (shard < FUZZ_N % SHARDS),
+            stateful_step_count=8,
+            derandomize=True,
+            deadline=None,
+        ),
+    )
