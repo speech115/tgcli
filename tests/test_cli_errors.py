@@ -141,8 +141,6 @@ def test_closed_pipe_during_an_error_envelope_keeps_the_real_failure(tmp_path):
     os.close(read_fd)
     stderr = process.communicate()[1]
 
-    # The command really failed (unknown alias → exit 4); the closed pipe only
-    # costs the envelope, never the truth about the run.
     assert process.returncode == 4
     assert b"Traceback" not in stderr
     [entry] = read_journal(state)

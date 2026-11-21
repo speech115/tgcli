@@ -146,7 +146,6 @@ def test_mutations_on_the_held_client_are_never_retried_blind(env, monkeypatch):
 
     asyncio.run(scenario())
 
-    # No resend and no flood sleep for a mutation; the read settings come back.
     assert client.retries_seen == [(0, 0), (5, 30)]
 
 

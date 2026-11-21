@@ -12,8 +12,6 @@ from tests.fakes.clone import (
     message,
     seed_clone,
 )
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
@@ -176,7 +174,6 @@ def test_clone_sync_copies_basic_group_foreign_peer_reply_without_wedging(
     assert sync["copied"] == 1
     assert sync["reuploaded"] == 1
     assert sync["quote_flattened"] == [{"id": 2, "peer": 456, "reason": "unreachable"}]
-    # The unreachable peer's title is looked up in the source's own history.
     assert [request.peer for request in client.history_requests] == [
         types.PeerChat(chat_id=123)
     ]

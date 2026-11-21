@@ -33,7 +33,7 @@ def test_connect_applies_wal_pragmas_and_schema(tmp_path, monkeypatch):
     conn = statedb.connect(path, create=True)
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
-        assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+        assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert version == statedb.SCHEMA_VERSION
@@ -105,7 +105,6 @@ def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
         statements.append(statement)
 
     conn.set_trace_callback(tracer)
-    # Re-open through the public save path while counting via a patched connect.
     conn.close()
 
     real_connect = statedb.connect
@@ -123,7 +122,6 @@ def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
     monkeypatch.setattr(statedb, "connect", counting_connect)
     state.save(loaded)
 
-    # One transaction: meta upsert + one id_map insert — never 200 map writes.
     map_writes = [
         s
         for s in counted
@@ -171,7 +169,6 @@ def test_failed_integrity_check_is_policy_error(tmp_path, monkeypatch):
     s = _fresh()
     state.save(s)
     path = state.path_for(s.clone_id)
-    # Truncate past the header so SQLite reports corruption.
     path.write_bytes(path.read_bytes()[:40])
 
     with pytest.raises(PolicyError, match="corrupted|integrity"):
@@ -221,7 +218,7 @@ def test_duplicate_destination_in_dirty_save_is_policy_error(
 
     loaded = state.load(s.clone_id)
     assert loaded is not None
-    record(loaded, 2, 100)  # new source, duplicate destination
+    record(loaded, 2, 100)
 
     with pytest.raises(PolicyError, match="duplicate"):
         state.save(loaded)

@@ -111,7 +111,6 @@ def test_clone_sync_drops_only_unavailable_custom_emoji_and_retries(
     entities = [bold, custom(5, 501), custom(8, 502), custom(11, 503)]
     client = EmojiClient(
         [message(2, message="post 🔥 🎉 ⭐", entities=entities)],
-        # 501 is gone, 503's set was deleted, 502 still resolves.
         rejects={501, 503},
         documents={502: 9, 503: 8},
         invalid_sets={8},

@@ -50,12 +50,8 @@ def _error_site(err: BaseException) -> str | None:
 
 __all__ = ["build_parser", "main", "entrypoint"]
 
-# The only argv tokens that may end a run successfully with text on stdout.
-# argparse groups single-dash short options, so the value `-hi` also reaches
-# the help action — that exit is misuse, not a help request.
 HELP_TOKENS = frozenset({"-h", "--help", "--version"})
 
-# Catchable termination signals; SIGKILL cannot be one and is left alone.
 TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 
@@ -184,17 +180,11 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
     args.account = account.alias
     if args.verbose:
         LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
-    # The audit role must cover every append_audit call this invocation makes,
-    # not just the network coroutine's client window: the before/after audits
-    # below run outside dispatch.run_network, so setting it only there (as
-    # dispatch used to) left the cli-level mutation audit rows without "role"
-    # (CONTRACT.md §6).
     token = safety.set_audit_role(getattr(args, "session_role", None))
     try:
         _audit_before(args, account, spec)
         network = dispatch.run_network(args, account)
         data, rows = deadline.run(network, args.timeout)
-        # A preview is spent only after its result audit.
         preview_commit.audit_after(args, account, data)
         preview_commit.finish(args)
         return data, rows
@@ -204,7 +194,7 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
 
 def _emit(args, spec: registry.Command, data, rows) -> None:
     if spec.emit == "none":
-        return  # the command owns stdout and already wrote it
+        return
     if args.json:
         output.emit_json(data)
     elif args.plain:
@@ -272,26 +262,19 @@ def main(
                 preflight.prepare(parser, args, spec)
                 data, rows = _execute(args, spec)
             result_data = data
-            # Emitting is part of the invocation: a failure here is journaled,
-            # not reported as a success.
             _emit(args, spec, data, rows)
             exit_code = 0
     except SystemExit:
-        # parser.error() already wrote usage to stderr, but a --json caller is
-        # still owed exactly one document on stdout (CONTRACT §2).
         error_code = "USAGE"
         exit_code = 1
         if args.json:
             with _tolerate_hangup():
                 output.emit_error(UsageError("invalid arguments"), as_json=True)
     except BrokenPipeError:
-        # The reader hung up (`| head`): stop writing and leave quietly.
         _silence_stdout()
         error_code = "BROKEN_PIPE"
         exit_code = 0
     except PartialFailure as err:
-        # Codes are recorded before the write: a reader that hangs up mid-
-        # envelope must not replace the real failure in the journal.
         error_code = err.code
         exit_code = err.exit_code
         retry_after = err.cause.details.get("retry_after")
@@ -305,16 +288,12 @@ def main(
             else:
                 output.emit_error(err, as_json=False)
     except deadline.AlarmFired:
-        # The whole-body alarm fired; the asyncio deadline is already
-        # translated by deadline.run (with its grace window).
         timed_out = CommandTimeoutError("invocation deadline exceeded")
         error_code = timed_out.code
         exit_code = timed_out.exit_code
         with _tolerate_hangup():
             output.emit_error(timed_out, as_json=args.json)
     except _TerminationSignal as err:
-        # The row is owed before the process leaves; entrypoint turns this
-        # back into the signal death the caller asked for.
         error_code = "TERMINATED"
         exit_code = 128 + err.signum
         raise
@@ -326,8 +305,6 @@ def main(
         with _tolerate_hangup():
             output.emit_error(err, as_json=args.json)
     except Exception as err:
-        # Untranslated failure (network, RPC, bug): still one envelope, and a
-        # traceback only when the caller asked for diagnostics.
         error_code = "RUNTIME"
         error_site, error_type = _error_site(err), type(err).__name__
         exit_code = 1
@@ -339,8 +316,6 @@ def main(
                 as_json=args.json,
             )
     except BaseException as err:
-        # An abnormal unwind (SIGINT) must not leave the journal claiming the
-        # pre-failure exit code with no error at all.
         interrupted = isinstance(err, KeyboardInterrupt)
         error_code = "INTERRUPTED" if interrupted else "UNHANDLED"
         exit_code = 130 if interrupted else 1
@@ -381,8 +356,7 @@ def entrypoint() -> None:
         _silence_stdout()
         exit_code = 0
     except _TerminationSignal as err:
-        # The journal row is written; leave the way the signal asked.
         signal.signal(err.signum, signal.SIG_DFL)
         os.kill(os.getpid(), err.signum)
-        exit_code = 128 + err.signum  # unreachable: the signal lands first
+        exit_code = 128 + err.signum
     sys.exit(exit_code)

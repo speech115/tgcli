@@ -62,7 +62,7 @@ async def copy_profile(tg, source, destination, account_alias, clone_state):
     """
     clone_id = clone_state.clone_id
     if isinstance(source, types.User):
-        full = await tg(functions.users.GetFullUserRequest(source))  # type: ignore  # Telethon resolves the entity
+        full = await tg(functions.users.GetFullUserRequest(source))  # type: ignore
         about = getattr(full.full_user, "about", None) or ""
     elif isinstance(source, types.Chat):
         full = await tg(functions.messages.GetFullChatRequest(chat_id=source.id))
@@ -135,9 +135,6 @@ async def init_discussion(
         if clone_state.comments != Comments.UNAVAILABLE:
             clone_state.comments = Comments.NONE
         return state.save(clone_state)
-    # Only "none" (the source unlinked its group for a while) relinks; an
-    # "unavailable" degrade cleared the comment map while the destination
-    # group still holds the copied comments.
     relinking = (
         clone_state.comments == Comments.NONE
         and clone_state.discussion_linked
@@ -148,9 +145,6 @@ async def init_discussion(
         and clone_state.id_map
         and not relinking
     ):
-        # posts copied before the link have no anchors, and there
-        # is no backfill, so a posts-only clone is never upgraded in place.
-        # A clone that was linked to this same group already has them.
         note(
             f"note: clone comments stay {clone_state.comments}: posts were "
             "copied without a linked discussion; re-run clone init --replace "
@@ -165,8 +159,6 @@ async def init_discussion(
     if refusal is None:
         _, refusal = await unless_refused(tg.get_messages(source_group, limit=1))
     if refusal is not None:
-        # The same degrade as sync's: "unavailable" never relinks, and state
-        # holds no comment progress for a clone that is not copying comments.
         clone_state.clear_discussion_progress()
         clone_state.comments = Comments.UNAVAILABLE
         return state.save(clone_state)

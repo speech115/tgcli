@@ -28,7 +28,6 @@ def ask_secret(title: str, prompt: str, *, hidden: bool) -> str:
 
 
 def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
-    # Escape for AppleScript string literals.
     def esc(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -37,8 +36,6 @@ def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
         f'display dialog "{esc(prompt)}" with title "{esc(title)}" '
         f'default answer ""{hidden_clause}'
     )
-    # Answer arrives on stdout; the secret is never an argv element of ours
-    # beyond the AppleScript source that only contains the prompt text.
     result = subprocess.run(
         ["osascript", "-e", script],
         check=False,
@@ -47,7 +44,6 @@ def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
     )
     if result.returncode != 0:
         raise PolicyError("secret dialog cancelled or unavailable")
-    # osascript prints "button returned:OK, text returned:<value>"
     text = result.stdout
     marker = "text returned:"
     if marker in text:

@@ -24,7 +24,7 @@ async def _message(tg, entity, message_id: int):
 async def prepare_edit(
     tg, chat: str, message_id: int, text: str, fmt: str = "plain"
 ) -> dict:
-    formatting.render(text, fmt)  # validate format early; raises on unknown fmt
+    formatting.render(text, fmt)
     entity = await _entity(tg, chat)
     message = await _message(tg, entity, message_id)
     stored = safety.create_preview(
@@ -55,8 +55,6 @@ async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
     except MessageNotModifiedError:
         message_id = payload["message_id"]
     except ValueError:
-        # edit_message resolves the peer internally, so an unresolvable chat
-        # surfaces here exactly as it does on the delete path.
         raise NotFoundError(f"dialog not found: {payload['chat']!r}") from None
     return {"preview_id": preview_id, "message_id": message_id}
 

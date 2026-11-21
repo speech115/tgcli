@@ -173,8 +173,6 @@ async def test_unauthorized_session_raises_config_error(state, monkeypatch):
     assert fake.connected is False
 
 
-# Every UnauthorizedError is a dead session, not a runtime failure: a
-# deleted or expired key used to escape as exit 1 with no remedy.
 DEAD_SESSION_ERRORS = [
     telethon_errors.SessionRevokedError,
     telethon_errors.AuthKeyUnregisteredError,

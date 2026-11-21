@@ -204,7 +204,6 @@ _SPECS: dict[str, _Spec] = {
 }
 
 
-# Read commands whose op name is not their command path.
 _CLI_OPS = {
     "media manifest": "media.manifest",
 }

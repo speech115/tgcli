@@ -274,8 +274,6 @@ def test_remove_role_takes_a_shared_lock_file_once(config_env, capsys):
     (sessions / "Work@JOB.session").write_bytes(b"new-key")
     (sessions / "Work@job.lock").touch()
     if not (sessions / "Work@JOB.lock").exists():
-        # A case-sensitive filesystem: share the lock file the way a
-        # case-insensitive one does.
         (sessions / "Work@JOB.lock").symlink_to(sessions / "Work@job.lock")
 
     assert (

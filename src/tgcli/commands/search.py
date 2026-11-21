@@ -16,7 +16,6 @@ async def fetch_search(
     entity = await _entity(tg, chat)
     messages = []
     more = False
-    # One hit past the limit tells a full page from a complete answer.
     async for message in tg.iter_messages(
         entity,
         search=query,

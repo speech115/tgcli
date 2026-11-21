@@ -108,8 +108,6 @@ def apply_events(
                 applied["inserted"] += 1
             elif action == "updated":
                 applied["updated"] += 1
-                # Difference may deliver an edit as message_new with a new body;
-                # upsert_message already appended a revision for the prior payload.
                 applied["edits"] += 1
             elif etype == "message_edit":
                 applied["edits"] += 1
@@ -171,10 +169,6 @@ async def _catch_up_peer(
     limit = min(CATCHUP_LIMIT, message_budget)
     forward = min_id > 0
     try:
-        # With a stored `newest_id`, read oldest first: a page cut short by
-        # the limit or a flood ends at a message whose predecessors are all
-        # stored, so `newest_id` never skips past a hole. A peer with no
-        # history yet keeps its newest page; backfill owns older messages.
         async for message in tg.iter_messages(
             entity,
             limit=limit,
@@ -195,8 +189,6 @@ async def _catch_up_peer(
                 peer_id,
                 oldest_id=(state or {}).get("oldest_id"),
                 newest_id=max(ids) if ids else (state or {}).get("newest_id"),
-                # `more` is backfill's: older history remains. A catch-up
-                # reads forward and never learns that.
                 more=bool(state["more"]) if state else False,
                 last_error=f"FLOOD_WAIT:{seconds}",
                 touch_sync=True,
@@ -206,8 +198,6 @@ async def _catch_up_peer(
             retry_after=seconds,
         ) from exc
     except changes_engine.CHANNEL_LOST_ERRORS:
-        # The account can no longer read this channel: keep what was stored
-        # and drop the catch-up instead of failing every later sync on it.
         with conn:
             store_mod.upsert_sync_state(
                 conn,
@@ -363,18 +353,11 @@ async def fetch_media(
                 retry_after=seconds,
             ) from exc
         except DownloadBusyError:
-            # Another process is downloading this very item: it owns the
-            # checkpoint, and nothing was learned about the file. Leave the
-            # row queued without spending an attempt.
             skipped += 1
             continue
         except RUN_ABORTING_ERRORS:
-            # A lost connection, a dead session: nothing was learned about
-            # this item, so no attempt is recorded.
             raise
         except (telethon_errors.ServerError, telethon_errors.TimedOutError) as exc:
-            # Telegram failing, not the file: stop the pass, keep the row's
-            # attempts, and let the next run take it again.
             note(
                 f"archive sync: media pass stopped at {peer_id}/{message_id}: "
                 f"{type(exc).__name__}: {exc}"
@@ -467,9 +450,6 @@ async def sync_archive(
     recovered: list[int] = []
     if new_gaps:
         recovered = await _dialogs_behind(tg, conn)
-    # Catch-ups an earlier run left unfinished go first, then this pass's
-    # activity and recovery; whatever does not finish is persisted for the
-    # next run, so `remaining: true` stays true until every chat is caught up.
     queue: list[int] = []
     for peer in [*account["pending_catchups"], *activity, *recovered]:
         if peer not in queue and _scoped(conn, peer):
@@ -502,9 +482,6 @@ async def sync_archive(
 
     if should_stop is not None and should_stop():
         stopped = True
-    # Checkpoint before the media tail: its queue lives in the database, so
-    # a media rate limit (exit 5) must not make the next run re-apply this
-    # difference. A gap stays recorded until no catch-up is left.
     persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=changes_cursor.encode(cursor),

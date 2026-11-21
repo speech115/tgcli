@@ -15,9 +15,6 @@ from tgcli.errors import RateLimitError
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
     spec = registry.lookup(args)
-    # cli._execute already holds the audit-role context var for the whole
-    # invocation (including this coroutine); only the network session itself
-    # needs the role here.
     role = getattr(args, "session_role", None)
     try:
         async with session.client(

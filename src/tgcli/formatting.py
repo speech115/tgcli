@@ -25,9 +25,6 @@ from tgcli.errors import PolicyError
 
 FORMATS = ("plain", "md", "html")
 
-# Everything docs/CONTRACT.md documents for --format html. Anything
-# else parses as markup and is silently deleted from the body, so it is an
-# error: the operator approved a preview of the full text.
 SUPPORTED_HTML_TAGS = frozenset(
     {
         "a",
@@ -72,10 +69,6 @@ class _HtmlParser(HTMLToTelegramParser):
         super().handle_endtag(tag)
 
     def handle_data(self, text):
-        # HTMLParser runs with convert_charrefs=True, so a charref is expanded
-        # after the input was surrogate encoded and arrives here as a real code
-        # point. Re-encode (idempotent for already-surrogated data) so entity
-        # offsets keep counting UTF-16 code units.
         super().handle_data(add_surrogate(text))
 
     def handle_comment(self, data):
@@ -105,8 +98,6 @@ def _parse_html(text: str):
         return text, []
     parser = _HtmlParser()
     parser.feed(add_surrogate(text))
-    # feed() leaves an unfinished tag in rawdata and drops it from .text; never
-    # call close(), which flushes rawdata and hides the truncation.
     if parser.rawdata:
         raise PolicyError(
             f"unterminated html markup: {del_surrogate(parser.rawdata)!r}",
@@ -143,9 +134,6 @@ def mask_phone(phone: str | None) -> str:
     return f"{phone[:2]}…{phone[-2:]}"
 
 
-# Free-form exception text can echo phones with display punctuation even when
-# the CLI normalized its input. Require a leading `+` and at least four digits,
-# but allow common separators between them; bare numeric ids stay untouched.
 _EMBEDDED_PHONE = re.compile(r"\+\d(?:[ ()\t.-]*\d){3,}")
 
 

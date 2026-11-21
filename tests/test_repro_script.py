@@ -34,7 +34,6 @@ def repo(tmp_path: Path, repro, monkeypatch) -> Path:
     _git(tmp_path, "config", "user.email", "t@example.com")
     _git(tmp_path, "config", "user.name", "t")
     (tmp_path / "src").mkdir()
-    # The bug the branch fixes: BASE's double returns its argument.
     (tmp_path / "src" / "calc.py").write_text("def double(x):\n    return x\n")
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_old.py").write_text("def test_old():\n    pass\n")

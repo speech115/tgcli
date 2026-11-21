@@ -108,7 +108,6 @@ REFUSALS = [
         ["transcribe", "--max-attempts", "6"],
         "archive transcribe --max-attempts accepts at most 5",
     ),
-    # When several bounds fail, the first one checked is the one reported.
     (
         ["sync", "--max-events", "0", "--max-dialogs", "0", "--max-media", "0"],
         "archive sync --max-dialogs must be positive",

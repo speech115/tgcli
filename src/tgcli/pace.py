@@ -14,25 +14,13 @@ from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 
 from tgcli.tg_errors import FLOOD_ERRORS
 
-# Telethon sleeps a FloodWait up to this long and sends the request again; a
-# longer one raises, and the command exits 5 with `retry_after`.
-# It also remembers the wait per request type for the rest of the process: a
-# further request of that type sleeps out what is left, or raises unsent.
-# `Pace.call` resends a write after a flood of up to this long as well.
 FLOOD_SLEEP_THRESHOLD = 30
 
-# Between the pages of one history or enumeration walk, and between the peers
-# of a loop that walks many. The 2026-07-31 flood was 791 dialogs read with
-# no gap at all.
 PAGE_WAIT_S = 3.0
-# A command that reads one chat at the owner's request. `None` is Telethon's
-# own default: no wait up to 3000 messages, 1 s a page beyond.
 INTERACTIVE_PAGE_WAIT = None
-# 20 sends a minute, the pace a clone held without a flood.
 SEND_INTERVAL_S = 3.0
 MEDIA_INTERVAL_S = 3.0
 
-# Rows one request returns from `iter_dialogs` and `iter_participants`.
 DIALOGS_PAGE = 100
 PARTICIPANTS_PAGE = 200
 
@@ -65,8 +53,6 @@ class Pace:
         start = now
         if self._calls > self._free and self._last is not None:
             start = max(now, self._last + self._interval)
-        # Reserved before the sleep, so concurrent tasks queue behind this
-        # call instead of computing the same wait.
         self._last = start
         if start > now:
             await self._sleep(start - now)

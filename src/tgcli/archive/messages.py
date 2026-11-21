@@ -114,7 +114,6 @@ def find_message_peers(
     if not message_ids:
         return []
     placeholders = ",".join("?" for _ in message_ids)
-    # Marked channel/supergroup ids are <= -10**12 (-100XXXXXXXXXX).
     params: list[int] = [int(mid) for mid in message_ids] + [-(10**12)]
     rows = conn.execute(
         f"SELECT peer_id, message_id FROM messages "

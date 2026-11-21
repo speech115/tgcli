@@ -62,7 +62,6 @@ def test_write_account_sync_rows(conn, clock):
     write = store_mod.write_account_sync
     assert _account_row(conn) is None
 
-    # The first write creates the singleton even with nothing to set.
     assert write(conn) is None
     assert _account_row(conn) == {
         "id": 1,
@@ -99,7 +98,6 @@ def test_write_account_sync_rows(conn, clock):
 
     after_reconcile = _account_row(conn)
 
-    # An empty pending list is stored as NULL; a later gap joins the old one.
     write(conn, pending_catchups=[], gaps=[{"reason": "channel"}])
     assert _account_row(conn) == {
         **after_reconcile,
@@ -107,7 +105,6 @@ def test_write_account_sync_rows(conn, clock):
         "pending_catchups_json": None,
     }
 
-    # clear_gap wins over a gap passed in the same call.
     write(conn, gaps=[{"reason": "ignored"}], clear_gap=True, touch_sync=True)
     assert _account_row(conn) == {
         **after_reconcile,

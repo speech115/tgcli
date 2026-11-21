@@ -53,8 +53,6 @@ from tests.fakes.clone import SAMPLE, message
 from tgcli.cli import main
 from tgcli.clone import legs, state
 
-# The n-th operation of a run, and the n-th send: a run makes a few dozen
-# operations and a handful of sends, so both counters reach every step.
 plans = st.dictionaries(
     st.integers(0, 30), st.sampled_from(clone_faults.KINDS), max_size=2
 )
@@ -63,7 +61,7 @@ send_plans = st.dictionaries(
 )
 
 
-FLOOD_SECONDS = 30  # what `clone_faults` raises
+FLOOD_SECONDS = 30
 WAIT_SECONDS = FLOOD_SECONDS + 1
 
 
@@ -116,7 +114,6 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         self.world = world
         self.patch.setattr(legs, "WINDOW", world.window)
         root = Path(self.directory.name)
-        # The oracle: the same world synced once with nothing failing.
         self.patch.setenv("TGCLI_STATE_DIR", str(root / "oracle"))
         self.client = self._client(world)
         assert self._run({}) == 0, self.err
@@ -179,10 +176,6 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         if code == 5:
             self.flood_until = self.clock + FLOOD_SECONDS
         if strays:
-            # L2: a copy the clone lost track of is adopted when the leg's
-            # saved send intent names it; one it cannot explain stops the
-            # next copy into that chat cold, and the run says so (exit 2,
-            # manual repair).
             now = self._strays()
             left = [item for item in strays if item in now]
             chats = {chat for chat, _source, _dest in left}
@@ -195,9 +188,6 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         elif not fired:
             assert code == 0, (code, self.err)
         if fired and code != 0:
-            # The fault that ended the run names the exit (CONTRACT §4): a
-            # flood of either kind is 5 with retry_after, a lost or failed
-            # request 1, a send Telegram did not confirm 2.
             assert code == EXIT_FOR[fired[-1]], (fired, code, self.err)
 
     @rule()
@@ -241,8 +231,6 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         assert set(saved.discussion_id_map) == {
             comment.id for comment in self.world.comments
         }
-        # No fault leaves a lasting mark: every copy is the one a run that
-        # never failed makes, down to its body and where its reply points.
         assert clone_faults.shape(self.client, self._recorded()) == self.oracle
 
     @invariant()
@@ -291,13 +279,11 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
 
 
 FUZZ_N = int(__import__("os").environ.get("FUZZ_N", 200))
-# Separate tests let xdist spread the unchanged example budget across workers.
 SHARDS = min(50, max(1, FUZZ_N))
 
 
 @pytest.mark.parametrize("shard", range(SHARDS))
 def test_clone_sync_faults(shard):
-    # Explicit seeds distinguish factories with identical source under derandomize.
     @seed(shard)
     def machine():
         return CloneSyncFaultMachine()

@@ -10,33 +10,18 @@ from telethon import errors as telethon_errors
 
 from tgcli.errors import RateLimitError
 
-# Telegram's 420 families that say "wait N seconds" about the account, not the
-# request: FLOOD_WAIT_X, and FLOOD_PREMIUM_WAIT_X, the transfer speed limit a
-# non-Premium account meets. Both carry `.seconds` and both exit 5. Catch a
-# flood through this tuple, never through one class.
 FLOOD_ERRORS = (
     telethon_errors.FloodWaitError,
     telethon_errors.FloodPremiumWaitError,
 )
 
-# "Ask again later", never "Telegram refused". `raise_last_call_error=True`
-# makes a call whose retries ran out raise its own error; without it Telethon
-# raises ValueError, the same type `get_entity` uses for "no such peer", and
-# callers turned one 500 into permanent state. Code that maps refusals to a
-# lasting outcome (a marker, a fallback, a cached miss) re-raises these first.
 TRANSIENT_ERRORS = (
     *FLOOD_ERRORS,
     telethon_errors.ServerError,
     telethon_errors.TimedOutError,
-    # Telethon's own reconnects ran out: the network, not the request.
     ConnectionError,
 )
 
-# Errors about the run, never about the one item it was working on: a flood,
-# a connection Telethon could not restore, a session Telegram no longer
-# accepts. A loop that records a per-item failure (an
-# attempt counter, an `error` field, a skipped peer) re-raises these before
-# its `except Exception`, or one outage marks every item it touched.
 RUN_ABORTING_ERRORS = (
     *FLOOD_ERRORS,
     RateLimitError,
@@ -45,9 +30,6 @@ RUN_ABORTING_ERRORS = (
 )
 
 
-# Never a refusal about one peer: "ask again later", or a session Telegram
-# no longer accepts, which a re-login fixes. A catch site that maps an RPCError
-# to a lasting per-peer outcome re-raises these first.
 NOT_REFUSALS = (*TRANSIENT_ERRORS, telethon_errors.UnauthorizedError)
 
 

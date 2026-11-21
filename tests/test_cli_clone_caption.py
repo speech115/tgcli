@@ -132,7 +132,6 @@ def test_a_caption_without_spaces_splits_at_the_limit_whole_characters(
     config_env, monkeypatch, capsys
 ):
     seed_clone()
-    # 🔥 is two UTF-16 units; the limit falls inside the 513th one.
     client = CaptionClient([message(2, media=PHOTO, message="🔥" * 700)])
     make_session_fake(monkeypatch, client)
 

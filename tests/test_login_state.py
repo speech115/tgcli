@@ -74,12 +74,11 @@ def test_promote_atomic_when_replace_fails_midway(state, monkeypatch):
     with pytest.raises(OSError, match="simulated"):
         login_state.promote(login_id, dest, keep_backup=True)
 
-    # Destination restored to old content after failed staged move.
     assert dest.exists()
     assert dest.read_bytes() == b"old-session"
     bak = Path(str(dest) + ".bak")
     assert not bak.exists()
-    assert staged.exists()  # second replace failed; staged still there
+    assert staged.exists()
 
 
 def test_promote_discards_phone_sidecar(state):

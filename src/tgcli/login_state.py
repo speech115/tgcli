@@ -29,9 +29,6 @@ def _write_attempt(path: Path, record: dict) -> None:
     A concurrent reader must never see a half-written attempt.
     """
     if "phone" in record:
-        # The attempt json holds alias/phone_code_hash/
-        # created_at, never the phone. A regression here would put the raw
-        # phone back on disk for the whole 30-minute TTL (T08).
         raise AssertionError("login attempt record must not persist a raw phone")
     atomic.replace_text(path, json.dumps(record))
 
@@ -103,14 +100,8 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     except (KeyError, TypeError, ValueError) as exc:
         raise NotFoundError(f"unknown or expired login_id: {login_id!r}") from exc
     if expires_at.tzinfo is None or expires_at.utcoffset() is None:
-        # A naive stamp (hand edit, older build) cannot be compared to an
-        # aware now: treat the attempt as unreadable rather than crashing a
-        # command with a TypeError.
         raise NotFoundError(f"unknown or expired login_id: {login_id!r}")
     if now >= expires_at:
-        # A read never deletes. A forward clock step during a multi-step login
-        # would otherwise destroy the staged session the user is still creating.
-        # Reaping belongs to `discard_attempt`.
         raise NotFoundError(f"login_id {login_id!r} expired at {record['expires_at']}")
     return record
 
@@ -183,7 +174,6 @@ def promote(
             try:
                 os.replace(staged, destination)
             except Exception:
-                # Restore the working session if the staged move failed.
                 if bak.is_file() and not destination.exists():
                     os.replace(bak, destination)
                     backup_path = None

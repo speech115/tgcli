@@ -133,8 +133,6 @@ async def export_messages(
         destination.parent.mkdir(parents=True, exist_ok=True)
     with _atomic_text_destination(destination, preserve_existing=append) as handle:
         async with _message_takeout(tg) as takeout:
-            # A takeout session lifts the history limits, which is what it
-            # is for: its pages need no gap.
             async for message in takeout.iter_messages(
                 entity, limit=limit, reverse=True, min_id=min_id, wait_time=0
             ):

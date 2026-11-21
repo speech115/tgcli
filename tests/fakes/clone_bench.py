@@ -41,7 +41,7 @@ from tests.fakes.clone import SAMPLE, CloneCommentsClient, anchor, message
 from tgcli.clone import state
 
 BASELINE = Path(__file__).with_name("clone_bench_baseline.json")
-PAGE = 100  # messages per GetHistoryRequest page, Telethon's iter_messages size
+PAGE = 100
 
 SOURCE_CHANNEL = 123
 SOURCE_GROUP = 55
@@ -266,8 +266,6 @@ class Scenario:
 
 
 SCENARIOS = (
-    # An open channel with comments: posts forward, comments interleave in
-    # windows, then a sync with nothing new, then a small catch-up.
     Scenario(
         "open-with-comments",
         protected=False,
@@ -278,8 +276,6 @@ SCENARIOS = (
             Phase("incremental", 12),
         ),
     ),
-    # A protected channel without comments: every post is downloaded and
-    # reuploaded, albums as one SendMultiMedia.
     Scenario(
         "protected-reupload",
         protected=True,
@@ -333,7 +329,6 @@ def _isolated(client: BenchClient) -> Iterator[None]:
         os.environ["TGCLI_STATE_DIR"] = str(Path(scratch) / "state")
         session.client = fake_session  # type: ignore[assignment]
         state.save = counting_save
-        # The report counts requests and CPU time, not the gaps between sends.
         pace.Pace = functools.partial(saved_pace, sleep=no_wait)  # type: ignore[assignment,misc]
         try:
             yield

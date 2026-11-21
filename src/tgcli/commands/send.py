@@ -85,7 +85,7 @@ async def prepare(
         file_size, file_sha256 = None, None
         body = text
 
-    formatting.render(body, fmt)  # validate format early; raises on unknown fmt
+    formatting.render(body, fmt)
     entity = await _entity(tg, chat)
     stored = safety.create_preview(
         {
@@ -163,7 +163,6 @@ def _video_info(path: Path) -> tuple[float, int, int] | None:
                         at = 88 if tkhd[:1] == b"\x01" else 76
                         w = int.from_bytes(tkhd[at : at + 4], "big") >> 16
                         h = int.from_bytes(tkhd[at + 4 : at + 8], "big") >> 16
-                        # A zero `a` in the display matrix means a quarter turn.
                         if int.from_bytes(tkhd[at - 36 : at - 32], "big") == 0:
                             w, h = h, w
                         if w and h:
@@ -185,7 +184,6 @@ def _uploaded_media(uploaded, file: str, snapshot: Path):
     attributes: list = [types.DocumentAttributeFilename(Path(file).name)]
     video = mime.startswith("video/")
     if video:
-        # #285: without this attribute Telegram shows a video as a file row.
         duration, w, h = _video_info(snapshot) or (0, 1, 1)
         attributes.insert(
             0,
@@ -193,7 +191,6 @@ def _uploaded_media(uploaded, file: str, snapshot: Path):
                 duration=duration,
                 w=w,
                 h=h,
-                # Telegram streams only MP4-like containers.
                 supports_streaming=mime in _STREAMABLE_VIDEO or None,
             ),
         )
@@ -201,7 +198,6 @@ def _uploaded_media(uploaded, file: str, snapshot: Path):
         file=uploaded,
         mime_type=mime,
         attributes=attributes,
-        # Unset, Telegram may turn a video without sound into a GIF.
         nosound_video=video or None,
     )
 
@@ -333,8 +329,6 @@ async def prepare_forward(
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     random_id = payload["random_id"]
     source = await _input_peer(tg, payload["from_chat"])
-    # A retry after an unknown outcome skips the content check: the stored
-    # random_id lets Telegram answer already_sent instead of a second forward.
     if not safety.was_attempted(preview_id):
         message = await tg.get_messages(source, ids=payload["message_id"])
         if message is None:

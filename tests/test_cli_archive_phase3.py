@@ -334,7 +334,6 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
             username="alice",
             chat_ref="@alice",
         )
-        # Seed an account cursor so sync does not only init.
         cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
@@ -431,7 +430,7 @@ def test_a_gap_stays_until_its_recovery_reads_the_chat_that_moved(
     client = TooLongClient(
         me=archive_me(),
         entities={7: user},
-        messages=[newer, *reversed(messages)],  # newest first, as Telegram
+        messages=[newer, *reversed(messages)],
         dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
         later=[newer],
     )
@@ -452,7 +451,7 @@ def test_a_gap_stays_until_its_recovery_reads_the_chat_that_moved(
     assert second["applied"]["inserted"] == 1
     assert client.iter_messages_kwargs["min_id"] == 3
     assert _stored_ids(7) == [2, 3, 4, 5, 9]
-    assert second["remaining"] is True  # the page was full again
+    assert second["remaining"] is True
 
     assert main(["archive", "sync", "--json"]) == 0
     third = json.loads(capsys.readouterr().out)
@@ -669,7 +668,6 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetFullChannelRequest):
-                # Force skip subscription so UpdateChannelTooLong stays visible.
                 raise RuntimeError("pts unavailable")
             if isinstance(request, GetStateRequest):
                 return _state(pts=5, qts=1, seq=1)
@@ -908,7 +906,6 @@ def _flood_wait_error():
 
 
 def _rate_limit_error():
-    # A flood the download already translated into the CLI's own error.
     from tgcli.errors import RateLimitError
 
     return RateLimitError("rate limited for 600s", retry_after=600)
@@ -1173,7 +1170,6 @@ def test_sync_catch_up_of_a_channel_without_history_keeps_its_newest_page(
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetFullChannelRequest):
-                # Skip subscription so UpdateChannelTooLong stays visible.
                 raise RuntimeError("pts unavailable")
             if isinstance(request, GetStateRequest):
                 return _state(pts=5, qts=1, seq=1)

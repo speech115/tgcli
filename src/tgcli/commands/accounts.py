@@ -93,7 +93,7 @@ def _table_path(line: str) -> tuple[str, ...] | None:
     try:
         parsed: object = tomllib.loads(stripped)
     except tomllib.TOMLDecodeError:
-        return None  # a line inside a multi-line array, not a header
+        return None
     path: list[str] = []
     while isinstance(parsed, dict) and len(parsed) == 1:
         key, parsed = next(iter(parsed.items()))
@@ -121,8 +121,6 @@ def _remove_config_block(config_path: Path, alias: str) -> None:
         raise ConfigError(
             f"removing [accounts.{alias}] would break config: {exc}"
         ) from exc
-    # The scan is line based: a header-like line inside a multi-line string
-    # would cut the wrong text. Write only when exactly the alias is gone.
     expected = tomllib.loads(text)
     expected.get("accounts", {}).pop(alias, None)
     if _without_empty_accounts(remaining) != _without_empty_accounts(expected):
@@ -164,8 +162,6 @@ def remove_account(
     account = config.accounts[alias]
     path = session.session_path(account)
     bak = Path(str(path) + ".bak")
-    # Role sessions are full-access keys of the same account: they go with it,
-    # since `--role` removal is unreachable once the config block is gone.
     role_paths = session.role_session_files(account)
     state_paths.ensure_state_dir("sessions")
     with _lock_sessions((path, *chain.from_iterable(role_paths.values()))):
@@ -237,8 +233,6 @@ def _remove_late_roles(
         "accounts-remove", alias, {"roles": late_status, "keep_session": False}
     )
     for role_path in chain.from_iterable(late.values()):
-        # A login promoting this role holds its lock only briefly; failing
-        # here would leave a live key after the config block is gone.
         with session.session_file_lock(
             role_path, busy_error=PolicyError, wait=session.BUSY_WAIT_SECONDS
         ):
@@ -267,8 +261,6 @@ def _remove_role(
             "without --confirm"
         )
     account = config.accounts[alias]
-    # A case-sensitive filesystem can hold one logical role under several
-    # spellings; each is a live key, so every one of them goes.
     paths = [
         role_path
         for name, role_paths in session.role_session_files(account).items()

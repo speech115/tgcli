@@ -66,7 +66,6 @@ def scratch_tree(base: str, tree: Path) -> None:
 def run_tests(tree: Path, tests: list[str], timeout: float) -> dict[str, str]:
     """Outcome per test id: `passed`, `failed`, `error`, or `skipped`."""
     report = tree / "report.xml"
-    # An absolute PYTHONPATH, or the editable install shadows BASE's src.
     env = {k: v for k, v in os.environ.items() if not k.startswith("TGCLI_")}
     env.update(PYTHONPATH=str(tree / "src"), HOME=str(tree / "home"))
     subprocess.run(

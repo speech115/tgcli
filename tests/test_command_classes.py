@@ -12,8 +12,6 @@ from tgcli.parser import build_parser
 from tgcli.preview_commit import HANDSHAKES
 from tgcli.registry import COMMANDS
 
-# Network reads: Telegram is only asked, never changed. Output files a read
-# writes (`media download`, `export`) are the caller's own.
 READS = {
     "dialogs",
     "export messages",
@@ -25,7 +23,6 @@ READS = {
     "resolve",
     "search",
 }
-# Commands that touch neither Telegram nor tgcli state.
 LOCAL_READS = {
     "accounts list",
     "accounts show",
@@ -36,8 +33,6 @@ LOCAL_READS = {
     "clone status",
     "doctor",
 }
-# Writes without a preview/commit handshake, each with an argv that would
-# write: under TGCLI_READONLY=1 every one must exit 2 before it does.
 GATED_WRITES = {
     "accounts login": ["accounts", "login", "spare", "--phone", "+10000000000"],
     "accounts remove": ["accounts", "remove", "spare", "--confirm"],
@@ -50,7 +45,6 @@ GATED_WRITES = {
     "clone sync": ["clone", "sync", "@chat"],
     "run": ["run", "--write", "-"],
 }
-# Preview → commit writes: the commit leg must exit 2 when read-only.
 HANDSHAKE_COMMITS = {
     "clone init": ["clone", "init", "@chat", "--commit", "p"],
     "delete": ["delete", "--commit", "p"],
@@ -84,7 +78,6 @@ def _leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
         yield " ".join(prefix)
         return
     for action in subparsers:
-        # Aliases share one parser; classify the command by its first name.
         seen: set[int] = set()
         for name, child in action.choices.items():
             if id(child) not in seen:
@@ -131,7 +124,6 @@ def test_every_command_is_registered_with_its_class():
 
 def test_handshake_commits_match_the_preview_commit_registry():
     assert set(HANDSHAKES) == set(HANDSHAKE_COMMITS)
-    # One key space: a registry handshake command is looked up by its own key.
     assert set(HANDSHAKES) == {
         key for key, spec in COMMANDS.items() if spec.kind == "handshake"
     }

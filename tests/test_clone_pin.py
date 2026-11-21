@@ -279,7 +279,7 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
         for r in client.requests
         if isinstance(r, functions.channels.GetFullChannelRequest)
     ]
-    assert len(fulls) == 2  # Pin budget: recovery adds no extra RPCs
+    assert len(fulls) == 2
     assert not any(
         isinstance(r, functions.messages.UpdatePinnedMessageRequest)
         for r in client.requests

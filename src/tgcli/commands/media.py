@@ -130,8 +130,6 @@ def destination_for(name: str, requested: str | None) -> Path:
 async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
     async for dialog in tg.iter_dialogs():
         entity = dialog.entity
-        # A t.me/c/ link names a channel: ids are only unique within a peer
-        # kind, so a user with the same number is a different peer.
         if isinstance(entity, types.Channel) and entity.id == channel_id:
             try:
                 input_entity = await tg.get_input_entity(entity)
@@ -212,7 +210,7 @@ async def resolve_message(
         entity = (
             await _resolve_private_entity(tg, source.private_channel_id, account_alias)
             if source.private_channel_id is not None
-            else await tg.get_entity(chatref.parse(source.chat))  # type: ignore  # chat set when no private link
+            else await tg.get_entity(chatref.parse(source.chat))  # type: ignore
         )
     except ValueError:
         raise NotFoundError(f"dialog not found: {source.chat!r}") from None
@@ -267,8 +265,6 @@ def download_lock(source: MediaSource) -> Iterator[None]:
 def _message_filename(message, message_id: int) -> str:
     file = getattr(message, "file", None)
     name = getattr(file, "name", None)
-    # Telethon names only documents with a filename attribute; photos and
-    # voice notes still have an extension from their type.
     ext = getattr(file, "ext", None)
     if not name and isinstance(ext, str) and ext[:1] == "." and ext[1:].isalnum():
         name = f"media-{message_id}{ext}"
@@ -369,7 +365,6 @@ def _adopt_checkpoint(source: MediaSource, olds: list[Path], new: Path) -> None:
     if not isinstance(state, dict):
         return
     destination = state.get("destination")
-    # Anything else is left for _resume_offset to refuse as a mismatch.
     if isinstance(destination, str) and destination in [str(p) for p in olds]:
         state["destination"] = str(new)
         atomic.replace_text(state_path, json.dumps(state))
@@ -383,8 +378,6 @@ def _resume_offset(
     target: _DownloadTarget,
 ) -> int:
     if not state_path.exists():
-        # No state means no proven byte: discard the partial and start over
-        # rather than wedging every later run on an unresumable file.
         part_path.unlink(missing_ok=True)
         return 0
     try:
@@ -394,17 +387,9 @@ def _resume_offset(
     if not isinstance(state, dict):
         raise PolicyError(f"media download state is invalid: {state_path}")
     if state.get("resumable") is False:
-        # Left by an older tgcli whose parallel transfer could not resume:
-        # the partial file is worth nothing, so restart from zero.
         part_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
         return 0
-    # Ordering matters and is the point of this block. The state file is keyed
-    # by source alone, so a re-run with a different `--output` lands on this
-    # same record: that is a confused invocation and has always been exit 2.
-    # The media-identity restart below is *quieter* than that error, so it is
-    # asked second — otherwise a source that also replaced its media would
-    # silently swallow the wrong-output diagnostic (review finding).
     if state.get("source") != _source_label(source) or state.get("destination") != str(
         destination
     ):
@@ -413,10 +398,6 @@ def _resume_offset(
         )
     fingerprint = _media_fingerprint(target)
     if {key: state.get(key) for key in fingerprint} != fingerprint:
-        # The source replaced the file behind this message. The partial bytes
-        # belong to the old one, and appending the new file's tail to them
-        # would publish a splice that passes every length check and is
-        # neither file (#180). Not operator error — say so and start over.
         note(
             f"source media changed since the interrupted download of "
             f"{_source_label(source)}; restarting it from the beginning"
@@ -476,7 +457,6 @@ async def _download_target(
         raise NotFoundError(f"invalid media source: {_source_label(source)}")
     destination = destination_for(safe_filename(target.filename, fallback_id), output)
     state_path, part_path = _state_paths(source)
-    # Only the default name changed; an explicit --output keeps its own check.
     if (
         output is None
         and source.story_id is None
@@ -489,7 +469,6 @@ async def _download_target(
 
     ensure_parent_dir(part_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    # Small files and files of unknown size take one request at a time.
     size = target.size
     large = isinstance(size, int) and size > CHUNK_SIZE
     streams = parallel if large else 1
@@ -522,10 +501,6 @@ async def _download_target(
         )
 
     if target.size is not None and current != target.size:
-        # The final name means complete; a stream that ended early is not.
-        # The checkpoint above already made `current` durable, so the next
-        # run resumes from here instead of restarting
-        # (mirrored from clone reupload's `download_resumable` guard).
         raise PolicyError(
             f"media download stopped at {current}/{target.size} bytes "
             f"for {_source_label(source)}"

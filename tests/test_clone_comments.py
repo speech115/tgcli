@@ -43,7 +43,7 @@ class FakeTg:
 
     async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         self.iterated = True
-        if False:  # pragma: no cover — async generator shape
+        if False:  # pragma: no cover
             yield None
 
 
@@ -102,7 +102,7 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
             self.windows += 1
             if self.windows >= 2:
                 raise telethon_errors.ChannelPrivateError(request=None)
-            if False:  # pragma: no cover — async generator shape
+            if False:  # pragma: no cover
                 yield None
 
     tg = PrivatizedOnSecondWindow()
@@ -138,7 +138,6 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
     "make_error",
     [
         *TRANSIENT_ERRORS,
-        # A dead session asks for a re-login; it says nothing about the group.
         pytest.param(
             lambda: telethon_errors.SessionRevokedError(request=None), id="revoked"
         ),
@@ -166,7 +165,7 @@ def test_a_transient_error_from_a_cached_window_read_still_escapes(
             self, entity, *, min_id=0, reverse=False, wait_time=None
         ):
             raise error
-            if False:  # pragma: no cover — async generator shape
+            if False:  # pragma: no cover
                 yield None
 
     tg = FailsOnRead()

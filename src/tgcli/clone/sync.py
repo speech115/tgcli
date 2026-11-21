@@ -240,8 +240,6 @@ async def _open_slot(tg, source, me, source_entity, source_kind):
             "clone discussion group is not linked yet; finish the clone with: "
             f"tg clone init {source} (then --commit the preview it prints)"
         )
-    # Warn before the work, not only after it: a run killed by FloodWait never
-    # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
     destination = await resolve.resolve_destination(tg, clone_state.destination_peer_id)
     resolve.record_destination_name(clone_state, destination)
@@ -317,11 +315,6 @@ class _Run:
             progress=self.progress,
         )
         self.posts_exhausted = False
-        # A post replying to a comment not copied yet waits for
-        # the comments leg (`posts_waiting`), unless that leg has stalled and
-        # will not reach it this run. A stall releases only the batch that
-        # waited (`release_waiting`): the posts after it may reply to comments
-        # that copying it unblocks.
         self.posts_waiting = False
         self.comments_stalled = clone_state.comments != Comments.ENABLED
         self.release_waiting = False
@@ -334,12 +327,7 @@ class _Run:
         if clone_state.comments != Comments.ENABLED:
             await self.run_posts_window(None)
             return
-        # alternate posts×WINDOW with comments until both exhaust.
-        # Enter comments only while --limit budget remains; a limit hit during
-        # posts ends the run (same as today for limit < WINDOW).
         while not self.more and not pace.exhausted():
-            # Each interleaved window re-announces its leg so the counters
-            # belong to the leg that is running.
             self.progress.phase("posts", copied=len(clone_state.id_map))
             self.posts_waiting = False
             ran = await self.run_posts_window(legs.WINDOW)
@@ -362,13 +350,9 @@ class _Run:
             if self.posts_exhausted:
                 break
             if clone_state.comments != Comments.ENABLED:
-                # The group refused mid-run and comments degraded:
-                # the remaining posts copy alone.
                 self.comments_stalled = True
                 await self.run_posts_window(None)
                 break
-            # A waiting post needs the comments leg to move. If this window
-            # did not move it, no later one will: the post goes out flat.
             self.release_waiting = (
                 self.posts_waiting
                 and clone_state.discussion_cursor == discussion_before
@@ -455,9 +439,6 @@ class _Run:
                     f"{item['kind']}"
                 )
             return
-        # `source` is this leg's own entity — the channel for posts, the
-        # discussion group for comments — so the ~total describes the work
-        # the leg's counter is counting (#174).
         await self.progress.resolve_total(tg, source)
         plan = transport.decide(
             messages,
@@ -506,19 +487,11 @@ class _Run:
                 self.resolve_ctx,
             )
         except pace.CapReached as paused:
-            # Nothing was sent: the cursor stays and the callers' cap checks
-            # end the run as a normal wall-clock stop.
             note(str(paused))
             return
         batch_copied, mode, flattened, flattened_quote = sent
         self.copied += batch_copied
         self.transport_counts[mode] += batch_copied
-        # Only a native forward carries a keyboard; every other transport
-        # rebuilds the message and Telegram will not let a user account
-        # reattach one, so the rows are recorded as lost. Every
-        # loss is announced as it happens, not in the tail: the copy is
-        # already permanent and never revisited, and the run that dies on a
-        # flood mid-way leaves no result document to carry the rest.
         if mode != "forwarded":
             for message in messages:
                 buttons = fidelity.dropped_buttons(message)
@@ -547,10 +520,7 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
     tg = run.tg
     destination = run.destination
     more = run.more
-    # A run the cap stopped stopped early: no pin phase and no roster listing
-    # (the CLI contract), and `remaining` reflects the copy, not later phases.
     capped = pace.exhausted()
-    # pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
     if not run.forum:
         if not more and not capped:
@@ -566,7 +536,6 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
             pinned_result = pin.snapshot(clone_state)
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
-    # The pin phase may have spent the rest of the cap.
     if pace.exhausted():
         participants = roster.deferred(clone_state, "wall_clock_cap")
     elif not roster.due(clone_state):
@@ -603,8 +572,6 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
             rows=sync_rows(data),
         )
     if capped and not more:
-        # --max-runtime exhausted: a normal stop, not an error — the cursor
-        # advanced and the next invocation resumes.
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
         data["resume"] = {"cursor": clone_state.cursor}
     return data

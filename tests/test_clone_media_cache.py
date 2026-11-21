@@ -30,7 +30,6 @@ def config_env(tmp_path, monkeypatch):
 
 
 def _photo_message(message_id=2, size=100):
-    # Telethon reads ``message.file.size`` off the largest photo size.
     photo = types.Photo(
         id=7,
         access_hash=1,
@@ -131,8 +130,6 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
         await reupload.download_for_reupload(tg, msg, cache, progress=Progress())
     await reupload.download_for_reupload(tg, msg, cache, progress=Progress())
 
-    # First run reports its two chunks, the second picks up at the third.
-    # Parallel streams may repeat a mark; the marks never go backwards.
     assert seen == sorted(seen)
     assert sorted(set(seen)) == [
         (CHUNK_SIZE, size),
@@ -167,7 +164,6 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
         await reupload.download_for_reupload(ShortTg(), msg, cache)
 
     assert not (cache / "src-2").exists()
-    # The bytes that did arrive are kept for the next run.
     assert (cache / "src-2.part").stat().st_size == CHUNK_SIZE
 
 
@@ -207,8 +203,6 @@ async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
         Tg(), _sized_video(2, size=size, document_id=222), cache
     )
 
-    # Each stream starts at or past the checkpoint; nothing before it is
-    # fetched again.
     assert min(offsets) == 2 * CHUNK_SIZE
 
 

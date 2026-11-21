@@ -29,7 +29,6 @@ BOUNDS: dict[tuple[str, str], Bound] = {
     ("transcribe", "--limit"): Bound(20, 100),
     ("transcribe", "--max-attempts"): Bound(3, 5),
 }
-# CHAT arguments one `archive backfill` accepts (a count, not a flag value).
 BACKFILL_MAX_CHATS = 20
 
 

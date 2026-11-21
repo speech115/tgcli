@@ -20,8 +20,6 @@ from tests.fakes.clone import (
     seed_comments_clone,
     topic_create,
 )
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli import safety
 from tgcli.cli import main
@@ -466,7 +464,6 @@ def test_clone_sync_cap_hit_in_comments_leg_stops_the_leg(
     assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
 
     data = json.loads(capsys.readouterr().out)
-    # One post, then exactly one comment before the cap ran out.
     assert data["sync"]["copied"] == 2
     assert data["sync"]["discussion_cursor"] == 12
     assert data["remaining"] is True

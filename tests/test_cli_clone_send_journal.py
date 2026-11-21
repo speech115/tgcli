@@ -9,8 +9,6 @@ from telethon.tl import functions
 
 from tests.conftest import make_session_fake
 from tests.fakes.clone import CloneSyncClient, message, seed_clone
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
@@ -82,7 +80,6 @@ def test_a_send_that_never_left_is_sent_again(config_env, monkeypatch, capsys):
     assert resumed is not None
     assert resumed.id_map == {2: 2}
     assert resumed.send_intents == {}
-    # The dropped request never reached Telegram's log; the resend did.
     assert client.failed and _forwarded(client) == [[2]]
 
 
@@ -94,7 +91,7 @@ def test_a_tail_the_intent_does_not_explain_still_needs_repair(
     make_session_fake(monkeypatch, client)
     assert main(["clone", "sync", "@source", "--json"]) == 2
     capsys.readouterr()
-    client.destination_last_id += 1  # the owner posted into the clone meanwhile
+    client.destination_last_id += 1
 
     assert main(["clone", "sync", "@source", "--json"]) == 2
 

@@ -243,8 +243,6 @@ def write_account_sync(
         if clear_gap:
             columns["gap_json"] = None
         elif gaps:
-            # Add to, never replace, the gaps a recovery has not closed yet;
-            # a repeat of a stored gap moves it to the end instead.
             row = conn.execute(
                 "SELECT gap_json FROM account_sync WHERE id = 1"
             ).fetchone()
@@ -259,7 +257,6 @@ def write_account_sync(
                 json.dumps(pending_catchups) if pending_catchups else None
             )
         if columns:
-            # Column names come from the fixed keys above, never from input.
             assignments = ", ".join(f"{name} = ?" for name in columns)
             conn.execute(
                 f"UPDATE account_sync SET {assignments} WHERE id = 1",

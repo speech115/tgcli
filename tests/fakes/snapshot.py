@@ -11,7 +11,6 @@ from pathlib import Path
 
 SNAPSHOTS = Path(__file__).resolve().parent.parent / "snapshots"
 
-# Values that differ on every run; the key stays so its presence is pinned.
 VOLATILE = frozenset(
     {
         "preview_id",
@@ -21,7 +20,7 @@ VOLATILE = frozenset(
         "path",
         "audit_path",
         "last_backfill_at",
-        "rank",  # FTS5 bm25 score: varies with the SQLite build
+        "rank",
     }
 )
 

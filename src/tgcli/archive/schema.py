@@ -14,8 +14,6 @@ SCHEMA_VERSION = 12
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
-# Explicitly pin archive contention behavior; do not inherit the
-# driver's timeout default.
 BUSY_TIMEOUT_MS = 5_000
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
@@ -264,7 +262,6 @@ def db_path_for(account_dir: Path) -> Path:
 
 def ensure_account_dir(root: Path, alias: str) -> Path:
     """Create ``root/alias`` at 0700 (and repair modes under the archive root)."""
-    # root itself may be a custom path outside state_dir; still force 0700.
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         if root.stat().st_mode & 0o777 != 0o700:

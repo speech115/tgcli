@@ -16,8 +16,6 @@ from tests.fakes.clone import (
     seed_clone,
     topic_create,
 )
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli import safety
 from tgcli.cli import main

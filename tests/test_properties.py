@@ -23,8 +23,6 @@ from tgcli.formatting import render
 
 DETERMINISTIC = settings(max_examples=200, derandomize=True)
 
-# Includes astral plane characters (emoji) on purpose: Telegram entity
-# offsets count UTF-16 code units, so astral input is where offset bugs live.
 TEXT = st.text(
     alphabet=st.characters(
         codec="utf-8", categories=("L", "N", "P", "S", "Zs"), include_characters="😀🐍"
@@ -197,7 +195,6 @@ def test_a_split_caption_fits_loses_no_text_and_keeps_every_entity(caption):
     assert 0 < utf16_units(head) <= CAPTION_LIMIT
     assert text.startswith(head) and text.endswith(rest)
     assert text[len(head) : len(text) - len(rest)].strip() == ""
-    # The source entities are not changed in place.
     assert [(e.offset, e.length) for e in entities] == originals
     head_end = utf16_units(head)
     rest_start = utf16_units(text) - utf16_units(rest)

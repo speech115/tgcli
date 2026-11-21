@@ -14,8 +14,6 @@ from telethon.tl import types
 from tgcli.clone import state
 from tgcli.errors import PolicyError
 
-# The peer class a recorded source id belongs to, by the kind clone stored.
-# Anything else clone supports (broadcast, megagroup, forum) is a channel.
 _SOURCE_PEERS = {
     "dialog": types.PeerUser,
     "basic": types.PeerChat,

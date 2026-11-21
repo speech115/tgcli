@@ -100,8 +100,6 @@ async def download_media_bulk(
         )
         if fallback_id is None:
             continue
-        # The id prefix keeps two media of this chat with one name apart (ids
-        # are per chat, so another chat sharing the directory can still collide).
         unprefixed = media.safe_filename(target.filename, fallback_id)
         name = f"{fallback_id}-{unprefixed}"
         media._adopt_checkpoint(

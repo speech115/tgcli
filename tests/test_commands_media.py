@@ -102,7 +102,6 @@ async def test_download_never_publishes_a_short_stream(tmp_path):
         await download_media(fake, source, "main", output=str(target))
 
     assert not target.exists()
-    # The bytes that did arrive are kept for the next run's resume.
     _, part_path = _state_paths(source)
     assert part_path.read_bytes() == b"only"
 
@@ -131,11 +130,6 @@ async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
 
     await download_media(fake, source, "main", output=str(target))
 
-    # order[0] is the initial "checkpoint:0" written before any bytes exist
-    # (nothing to fsync yet, and `atomic.replace_text` fsyncs the state file
-    # and its directory on every write). The part file's own fsync — the one
-    # under test — must land immediately before the data checkpoint claims
-    # the bytes it just made durable.
     checkpoint_16 = order.index("checkpoint:16")
     assert order[checkpoint_16 - 1] == "fsync"
 
@@ -238,7 +232,6 @@ async def test_download_publishes_onto_another_filesystem(tmp_path, monkeypatch)
 
     assert target.read_bytes() == b"abcdef"
     assert result["bytes"] == 6
-    # No half-written leftover under the final name and no orphaned partial.
     assert list(target.parent.iterdir()) == [target]
     state_path, part_path = _state_paths(source)
     assert not part_path.exists()

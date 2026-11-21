@@ -12,10 +12,8 @@ class TransportPlan:
     reply_to: object | None
     reply_flattened: bool
     needs_author: bool
-    # Quote fallback body; applied before author attribution.
     body_prefix: str | None = None
     body_prefix_entities: tuple = ()
-    # Per-batch quote fallback row for sync reporting.
     quote_flattened: dict | None = None
 
 
@@ -49,7 +47,6 @@ def decide(
         reply_to = None
         reply_flattened = False
     elif classified.kind == "deferred":
-        # comments.sync_phase stops before send; never plant flat.
         return TransportPlan(
             mode="deferred",
             reply_to=None,
@@ -61,12 +58,10 @@ def decide(
         reply_flattened = False
     elif classified.kind == "flatten":
         reply_to = None
-        # Forum placement-only headers on a forum destination are not a lost reply.
         reply_flattened = not (
             leg.destination_kind == "forum" and topics.placement_only(header)
         )
     else:
-        # foreign-peer / mapped-cross-leg: quotes.resolve fills reply_to or fallback.
         reply_to = None
         reply_flattened = True
     if len(messages) == 1 and fidelity.supports(messages[0]):

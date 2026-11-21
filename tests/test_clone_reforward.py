@@ -1,4 +1,3 @@
-# tests/test_clone_reforward.py
 """Direct unit tests for the native re-forward proof."""
 
 import asyncio
@@ -80,9 +79,6 @@ class FakeTg:
         return self.search_results
 
 
-# --- eligible() -------------------------------------------------------
-
-
 def test_eligible_false_for_megagroup_leg():
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     leg = legs.posts(_clone_state(kind="megagroup"))
@@ -127,9 +123,6 @@ def test_eligible_true_for_protected_broadcast_repost():
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     leg = legs.posts(_clone_state())
     assert reforward.eligible(leg, [_post(fwd_from=fwd)], _plan()) is True
-
-
-# --- locate() -----------------------------------------------------------
 
 
 def test_locate_none_when_group_is_protected_issues_no_search():

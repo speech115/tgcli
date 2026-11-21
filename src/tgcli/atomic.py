@@ -48,7 +48,7 @@ def replace_text(path: Path, text: str, *, mode: int = 0o600) -> None:
             os.fsync(handle.fileno())
         os.chmod(tmp_name, mode)
         os.replace(tmp_name, path)
-    except BaseException:  # the CLI's signal escapes are BaseExceptions
+    except BaseException:
         try:
             os.unlink(tmp_name)
         except OSError:

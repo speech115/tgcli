@@ -28,7 +28,7 @@ def test_load_config_parses_accounts(config_file):
     config = load_config(config_file)
     assert config.default_account == "main"
     assert config.accounts["main"].api_id == 12345
-    assert config.accounts["main"].session == "main"  # defaults to alias
+    assert config.accounts["main"].session == "main"
     assert config.accounts["pl"].session == "poland"
 
 
@@ -94,10 +94,10 @@ def test_distinct_sessions_still_load(tmp_path):
 def test_resolve_priority_flag_env_default(config_file, monkeypatch):
     config = load_config(config_file)
     monkeypatch.setenv("TGCLI_ACCOUNT", "pl")
-    assert resolve_account(config, "main").alias == "main"  # flag wins
-    assert resolve_account(config, None).alias == "pl"  # env wins
+    assert resolve_account(config, "main").alias == "main"
+    assert resolve_account(config, None).alias == "pl"
     monkeypatch.delenv("TGCLI_ACCOUNT")
-    assert resolve_account(config, None).alias == "main"  # config default
+    assert resolve_account(config, None).alias == "main"
 
 
 def test_resolve_unknown_alias_raises(config_file):
@@ -124,8 +124,6 @@ def test_path_escaping_session_stem_rejected_at_load(tmp_path, session):
     a session/lock file outside sessions/, weakening the 0700/0600 state
     model — reject it before the account is ever built."""
     path = tmp_path / "config.toml"
-    # A TOML literal string ('...') takes the value verbatim, so the
-    # backslash/slash cases need no TOML-level escaping here.
     path.write_text(
         f"[accounts.main]\napi_id = 1\napi_hash = \"x\"\nsession = '{session}'\n"
     )

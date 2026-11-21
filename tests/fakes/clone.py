@@ -144,8 +144,6 @@ def seed_clone(*, kind="broadcast", title="Source channel"):
 
 
 class CloneSyncClient:
-    # Telethon restores the logged-in account id from the session on connect,
-    # so a connected client knows it without a get_me RPC.
     _self_id = 42
 
     def __init__(self, messages):
@@ -155,21 +153,14 @@ class CloneSyncClient:
         self.destination_last_id = 1
         self.destination_actions = {}
         self.requests = []
-        # Which history reads happened, as (leg, min_id): order is observed
-        # through what the destination receives, never through call flags.
         self.iter_messages_calls = []
-        # The `wait_time` each history read asked Telethon for.
         self.page_waits = []
         self.source_pinned_msg_id = None
         self.destination_pinned_msg_id = None
         self.full_requests = []
-        # Chats the source history response ships alongside a message: where
-        # Telegram puts ``ChannelForbidden`` for a quoted channel (quotes.py).
         self.history_chats = []
         self.history_requests = []
-        # The one-message reads that tell an idle sync it has nothing to copy.
         self.newest_requests = []
-        # The batched newest-id reads of `clone sync --all`.
         self.peer_dialog_requests = []
 
     def _source_marked(self) -> int:
@@ -220,7 +211,6 @@ class CloneSyncClient:
 
     async def get_messages(self, entity, limit=None):
         if entity is self.source:
-            # sync asks the source for its approximate total once.
             return SimpleNamespace(total=len(self.messages))
         assert entity is self.destination
         return [
@@ -242,9 +232,8 @@ class CloneSyncClient:
             yield item
 
     async def iter_participants(self, entity, limit=None):
-        # a broadcast source the account does not administer refuses its roster
         raise telethon_errors.ChatAdminRequiredError(request=None)
-        yield  # pragma: no cover - marks this coroutine as an async generator
+        yield  # pragma: no cover
 
     async def __call__(self, request):
         if isinstance(request, functions.channels.GetFullChannelRequest):
@@ -310,8 +299,6 @@ class CloneSyncClient:
         return SimpleNamespace(updates=updates)
 
 
-# Telegram refuses an uploaded photo whose file name lacks an image extension
-# (PHOTO_EXT_INVALID); the name comes from the InputFile, not the bytes.
 PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
@@ -580,11 +567,8 @@ class CloneCommentsClient(CloneReuploadClient):
             found = [item for item in self.comments if item.id == ids]
             return found[0] if found else None
         if entity is self.source_group and limit == 0:
-            # The comments leg asks its own source for its ~total (#174).
             return SimpleNamespace(total=len(self.comments))
         if entity is self.destination_group:
-            # Telegram fills a live discussion group with its own anchors for
-            # our posts; anything else must be planted explicitly.
             return [
                 self.group_tail.get(
                     item_id, anchor(item_id, 2, source_channel_id=999, chat=888)

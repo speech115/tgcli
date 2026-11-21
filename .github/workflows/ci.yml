@@ -45,6 +45,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Check flood, paging and state-write rules
         run: uv run python scripts/check-bans.py
+      - name: Check no new code comments
+        run: uv run python scripts/check-comments.py
       - name: Type check
         run: uv run pyright
 

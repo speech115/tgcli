@@ -97,8 +97,6 @@ def _classify_header(
         return Classification(kind="flatten")
     if not isinstance(header, types.MessageReplyHeader):
         raise PolicyError("clone reply shape is not supported")
-    # reply_to_ephemeral exists on some Telethon builds but not the pinned
-    # 1.44 stub; getattr keeps the path without a pyright false positive.
     if (
         header.reply_to_scheduled
         or getattr(header, "reply_to_ephemeral", False)
@@ -128,10 +126,6 @@ def _classify_header(
         if _peer_matches_id(peer, leg.other.source_peer_id):
             if leg.other.dest_for_raw(parent_id) is not None:
                 return result("mapped-cross-leg")
-            # Discussion leg only: parent beyond the posts cursor
-            # means "not copied yet" → defer, unless the posts leg is already
-            # exhausted (parent will never arrive) → flatten. Parent behind
-            # the cursor and absent means permanently gone → flatten.
             if (
                 leg.kind == "discussion"
                 and posts_cursor is not None
@@ -139,9 +133,6 @@ def _classify_header(
                 and not posts_exhausted
             ):
                 return result("deferred")
-            # Posts leg, the mirror: a comment beyond the
-            # discussion cursor is not copied yet, so the post waits for the
-            # comments leg, unless that leg stalled (it will not get there).
             if (
                 leg.kind == "posts"
                 and parent_id > leg.other.cursor

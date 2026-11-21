@@ -110,9 +110,6 @@ async def _probe_if_needed(
         return
     account = config.accounts.get(alias)
     if account is None:
-        # Orphan session for a not-yet-configured alias: probe with the
-        # credentials the caller just supplied so we never overwrite a still-
-        # authorized key without --force.
         account = Account(alias=alias, api_id=api_id, api_hash=api_hash, session=alias)
     if await authclient.probe_authorized(account):
         if not force:
@@ -189,7 +186,6 @@ async def _finish_authorized(
     role: str | None = None,
 ) -> dict:
     me = await client.get_me()
-    # Disconnect before promote so SQLite releases the staged file.
     await client.disconnect()
     _audit_login(alias, method=method, outcome="authorized", phone=phone, role=role)
     backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
@@ -226,13 +222,11 @@ def _discard_if_account_removed(
     try:
         present = alias in load_config().accounts
     except ConfigError:
-        return  # an unreadable config proves nothing; keep the new session
+        return
     if present:
         return
     _audit_login(alias, method=method, outcome="discarded", role=role)
     with session_file_lock(dest, busy_error=PolicyError, wait=BUSY_WAIT_SECONDS):
-        # Leave the pre-login state: a `--keep-session` remove kept the old
-        # session, which this promote had just moved to the backup.
         if backup is not None and backup.is_file():
             os.replace(backup, dest)
         else:
@@ -398,7 +392,6 @@ async def continue_login(
             if pending is not None:
                 return pending
         else:
-            # Submit the phone confirmation code first.
             resolved_code = _collect_code(code=code)
             phone_code_hash = attempt["phone_code_hash"]
             if not isinstance(phone, str) or not isinstance(phone_code_hash, str):

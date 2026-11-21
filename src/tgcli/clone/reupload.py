@@ -29,9 +29,6 @@ from tgcli.transfer import (
     upload_parts,
 )
 
-# The still-image sizes Telethon accepts back as a `thumb=` argument. A
-# `PhotoPathSize` is an outline, a `VideoSize` is a video preview, and a
-# `PhotoSizeProgressive` is not selectable by object, so none of them qualify.
 STILL_THUMB_SIZES = (
     types.PhotoSize,
     types.PhotoCachedSize,
@@ -76,7 +73,6 @@ async def uploaded_thumb(tg, message, document, path: Path):
             return None
         return await tg.upload_file(downloaded)
     except TRANSIENT_ERRORS:
-        # Not a refused thumb: dropping it would lose the preview for good.
         raise
     except Exception as exc:
         note(f"warning: clone thumb skipped for source message {message.id}: {exc}")
@@ -92,8 +88,6 @@ def _plain_video(attributes) -> bool:
     )
 
 
-# Telegram takes an uploaded photo's format from its file name and refuses one
-# without an image extension (PHOTO_EXT_INVALID). Telegram serves photos as JPEG.
 PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
@@ -116,8 +110,6 @@ async def uploaded_media(tg, message, path, progress=None):
         file_name=upload_name(message, path),
         progress=clone_progress.transfer_of(progress, message, "upload"),
     )
-    # A blur the source put on purpose is content: dropping it publishes the
-    # media uncovered.
     spoiler = getattr(message.media, "spoiler", None) or None
     if isinstance(message.media, types.MessageMediaPhoto):
         return types.InputMediaUploadedPhoto(file=input_file, spoiler=spoiler)
@@ -127,8 +119,6 @@ async def uploaded_media(tg, message, path, progress=None):
         file=input_file,
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
         attributes=attributes,
-        # Unset, Telegram may turn a video without sound into a GIF (as in
-        # `tg send --file`); a source GIF carries its own Animated attribute.
         nosound_video=_plain_video(attributes) or None,
         spoiler=spoiler,
         thumb=await uploaded_thumb(
@@ -219,23 +209,11 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
         and cached.stat().st_size == size
     ):
         return cached
-    # Stale name/size (or unpredictable size): drop before re-download so the
-    # partial file and download_media see a free path. Telethon never
-    # overwrites: a file left at its name sends the next download to
-    # `src-<id> (1).jpg`.
     if cached is not None:
         cached.unlink(missing_ok=True)
     target.unlink(missing_ok=True)
     marker.unlink(missing_ok=True)
     if size is not None and size > CHUNK_SIZE:
-        # Stream into a sibling .part and rename, as `media download` does:
-        # the final name must mean "complete", or a killed run leaves a
-        # full-size sparse file the reuse check would upload as real media.
-        # Four chunk requests run at once (TDLib's non-Premium budget per
-        # DC), but only the contiguous prefix is checkpointed, so a FloodWait
-        # costs the chunks in flight instead of the whole file.
-        # Only this path reports bytes: a sub-chunk file is over before it
-        # could reach a progress mark.
         part = target.with_name(f"{target.name}.part")
         media_id = media_identity(message.media)
         offset = resume_offset(part, size, media_id)
@@ -251,14 +229,11 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
             should_stop=pace.exhausted,
         )
         if written != size and pace.exhausted():
-            # The checkpoint keeps what arrived; the next run resumes it.
             raise pace.CapReached(
                 f"clone media download paused at {written}/{size} bytes for "
                 f"source message {message.id}"
             )
         if written != size:
-            # A stream that ended early is not a complete file, and the final
-            # name means complete. Keep the partial for the next run's resume.
             raise PolicyError(
                 f"clone media download stopped at {written}/{size} bytes "
                 f"for source message {message.id}"
@@ -272,6 +247,5 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
         raise PolicyError(f"clone media download failed at source message {message.id}")
     path = Path(downloaded)
     if path.parent == target.parent:
-        # Telethon picks the name (`src-<id>.jpg`): the marker records it.
         atomic.replace_text(marker, "" if path == target else path.name)
     return path

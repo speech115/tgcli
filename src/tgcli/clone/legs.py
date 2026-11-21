@@ -9,7 +9,6 @@ from typing import ClassVar, Literal
 from tgcli.clone import state
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
 
-# posts/comments interleave in fixed windows (not a flag).
 WINDOW = 50
 
 LegKind = Literal["posts", "discussion"]
@@ -183,8 +182,6 @@ class DiscussionLeg(Leg[SourceCommentId, DestCommentId]):
         self.clone_state.discussion_cursor = value
 
 
-# What cross-leg code takes: either concrete leg, never a bare ``Leg`` whose id
-# spaces are unknown. Narrow with ``isinstance`` before using a leg-specific id.
 type AnyLeg = PostsLeg | DiscussionLeg
 
 

@@ -49,8 +49,6 @@ class UnknownPeerClient(MutateClient):
     async def edit_message(
         self, chat, message_id, text, *, formatting_entities=None, parse_mode=()
     ):
-        # Telethon resolves the peer inside edit_message, so an unknown chat
-        # fails here rather than at an explicit get_entity call.
         raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
 
     async def get_input_entity(self, key):

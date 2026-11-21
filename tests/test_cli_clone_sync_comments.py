@@ -16,8 +16,6 @@ from tests.fakes.clone import (
     message,
     seed_comments_clone,
 )
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
@@ -31,7 +29,6 @@ def test_sync_anchor_for_skipped_post_does_not_stall_comments(
     from tgcli.clone import legs
 
     monkeypatch.setattr(legs, "WINDOW", 50)
-    # Post 2 is a dice (unsupported); cursor still advances past it.
     dice = message(2, media=type("MessageMediaDice", (), {})())
     seed_comments_clone()
     client = CloneCommentsClient(
@@ -117,8 +114,6 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
                 raise telethon_errors.FloodWaitError(request=request, capture=61)
             return await super().__call__(request)
 
-    # Window 1 copies posts 2,3 then comments hit a reply to post 5 → defer.
-    # FloodWait on post 5 freezes the mid-defer state for assertions.
     client = FloodBeforeParent(
         [message(2), message(3), message(5, message="parent post")],
         [
@@ -141,16 +136,14 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     assert group_sends(client) == []
     mid = state.load(clone_state.clone_id)
     assert mid is not None
-    assert mid.discussion_cursor == 10  # advanced past anchor, not past comment
+    assert mid.discussion_cursor == 10
     assert mid.discussion_dest_for(12) is None
     assert mid.cursor == 3
     assert mid.dest_for(5) is None
 
-    # Clear the per-clone cooldown so the resume run can proceed.
     mid.retry_not_before = None
     state.save(mid)
 
-    # Resume: parent post maps, then comments leg copies the deferred reply.
     client2 = CloneCommentsClient(
         [message(5, message="parent post")],
         [
@@ -168,7 +161,6 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     client2.destination_last_id = max(mid.max_destination_id() or 0, 1)
     client2.group_last_id = max(mid.max_discussion_destination_id() or 0, 1)
     client2.anchor_ids = {5: 700}
-    # Restore mapped posts 2,3 into the fresh client's view via state only.
     make_session_fake(monkeypatch, client2)
     assert main(["clone", "sync", "@source", "--json"]) == 0
     sync = json.loads(capsys.readouterr().out)["sync"]
@@ -284,7 +276,6 @@ def test_sync_limit_smaller_than_window_saves_both_cursors(
 
     monkeypatch.setattr(legs, "WINDOW", 50)
     clone_state = seed_comments_clone()
-    # Two posts only — under WINDOW — so comments run with remaining budget.
     client = CloneCommentsClient(
         [message(2), message(3)],
         [
@@ -302,8 +293,7 @@ def test_sync_limit_smaller_than_window_saves_both_cursors(
 
     assert main(["clone", "sync", "@source", "--limit", "3", "--json"]) == 0
     sync = json.loads(capsys.readouterr().out)["sync"]
-    assert sync["copied"] == 3  # 2 posts + 1 comment
-    # Anchor 13 remains past the budget → more; both cursors still durable.
+    assert sync["copied"] == 3
     assert sync["more"] is True
     saved = state.load(clone_state.clone_id)
     assert saved is not None
@@ -395,8 +385,6 @@ def test_sync_blocks_unexpected_discussion_destination_tail(
 
     assert main(["clone", "sync", "@source", "--json"]) == 2
 
-    # CONTRACT §2: the error is the final single-line JSON object on a stderr
-    # that also carries progress lines — not the whole stream.
     error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
     assert "discussion destination has unexpected tail" in error["message"]
     assert error["unexpected"] == 1

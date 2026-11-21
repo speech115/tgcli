@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Symlink the tgcli entrypoint onto PATH ahead of the old tools/telegram wrapper.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

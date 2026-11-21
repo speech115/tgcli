@@ -21,8 +21,6 @@ from tgcli.commands import (
 )
 from tgcli.errors import PolicyError
 
-# Local commands that need neither config nor Telegram.
-
 
 def clone_status(args) -> tuple[dict, list[tuple]]:
     data = clone_cmd.list_clones(args.source)
@@ -34,9 +32,6 @@ def clone_status(args) -> tuple[dict, list[tuple]]:
                 f"{entry['source']['id']}"
             )
     return data, clone_cmd.status_rows(data)
-
-
-# Local commands that read the config.
 
 
 def accounts_list(args, config) -> tuple[dict, list[tuple]]:
@@ -51,8 +46,6 @@ def accounts_show(args, config) -> tuple[dict, list[tuple]]:
 
 def accounts_remove(args, config) -> tuple[dict, list[tuple]]:
     if args.confirm:
-        # Gated here, after the config loads, not in preflight: a missing
-        # config has always been reported before the readonly refusal.
         safety.enforce_local_mutation_allowed(args.readonly)
     data = accounts_cmd.remove_account(
         config,
@@ -96,9 +89,6 @@ def doctor(args, config) -> tuple[dict, list[tuple]]:
     else:
         data = loop.run(coro)
     return data, doctor_cmd.to_rows(data)
-
-
-# Network commands: one open session each.
 
 
 async def read(tg, args, account) -> tuple[dict, list[tuple]]:

@@ -30,13 +30,10 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
     except ValueError:
         path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        # A state-root parent (sessions/ or logins/) is tgcli's property:
-        # create and mode-repair it like every other confirmed site.
         ensure_state_dir(*relative.parts)
     with session_file_lock(path):
         create_private(path)
         tg = build_client(path, api_id, api_hash)
-        # A session made before create_private existed may still be loose.
         restrict_file(path)
         try:
             try:
@@ -48,9 +45,6 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
                     retry_after=exc.seconds,
                 ) from exc
         finally:
-            # Login may disconnect before promote so SQLite releases the staged
-            # file; a second disconnect would recreate an empty DB at the old path
-            # and raise (no entities table) after the session was moved.
             if tg.is_connected():
                 await tg.disconnect()  # type: ignore[func-returns-value]
 
@@ -63,10 +57,6 @@ async def probe_authorized(account: Account, role: str | None = None) -> bool:
     path = session_path(account, role)
     try:
         async with unauthorized_client(path, account.api_id, account.api_hash) as tg:
-            # Telethon's is_user_authorized catches every RPCError, including
-            # FloodWaitError, and caches False. Probe with its underlying
-            # authorization-required request so transient failures cannot
-            # authorize replacement of a live session.
             await tg(functions.updates.GetStateRequest())
             return True
     except telethon_errors.UnauthorizedError:

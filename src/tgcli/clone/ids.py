@@ -8,11 +8,7 @@ wrapping, e.g. ``SourceCommentId(header.reply_to_top_id)``.
 
 from typing import NewType
 
-# The clone's source peer: channel posts, or the messages of a group source.
 SourcePostId = NewType("SourcePostId", int)
-# The source's linked discussion group, auto-forward anchors included.
 SourceCommentId = NewType("SourceCommentId", int)
-# The destination channel (or group/forum) the posts leg writes.
 DestPostId = NewType("DestPostId", int)
-# The destination's discussion group, anchors included.
 DestCommentId = NewType("DestCommentId", int)

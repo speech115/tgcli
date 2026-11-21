@@ -19,11 +19,7 @@ from tgcli.errors import ConfigError
 from tgcli.state_paths import ensure_parent_dir, restrict_file
 
 CHUNK_SIZE = 512 * 1024
-# Chunk requests in flight for one large file, on one DC connection. Official
-# clients keep at least this many going; more only brings floods sooner.
 CLONE_TRANSFER_PARALLEL = 4
-# One chunk cadence for every transfer that reports progress:
-# `media download` and the clone reupload legs.
 PROGRESS_EVERY_CHUNKS = 16
 
 
@@ -78,13 +74,9 @@ async def _run_workers(coros: Iterable[Coroutine[Any, Any, None]]) -> None:
             for coro in coros:
                 group.create_task(coro)
     except ExceptionGroup as eg:
-        # Surface the first worker cause so FloodWait keeps the exit-5 path.
         raise eg.exceptions[0] from eg
 
 
-# One checkpoint per this many chunks. Frequent enough that a killed run
-# loses seconds of transfer, rare enough that the sidecar write is noise
-# against the bytes (the same cadence `media download` has always used).
 CHECKPOINT_EVERY_CHUNKS = 8
 
 
@@ -171,7 +163,6 @@ async def download_resumable(
     bytes so far are checkpointed like any other exit.
     """
     ensure_parent_dir(part)
-    # 0600 from the first byte: the partial file is the user's media.
     flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if offset else os.O_TRUNC)
     descriptor = os.open(part, flags, 0o600)
     restrict_file(part)
@@ -198,11 +189,6 @@ async def download_resumable(
                 if should_stop is not None and should_stop():
                     break
         except BaseException:
-            # Bookkeeping must never replace the exception being unwound: a
-            # FloodWait that leaves as an OSError loses its `retry_after`,
-            # and with it the exit-5 contract (CONTRACT §4)
-            # (review finding). Losing the last few chunks is the cheaper
-            # failure — the next run re-fetches them.
             with contextlib.suppress(Exception):
                 _record(handle, checkpoint, current)
             raise
@@ -239,7 +225,6 @@ async def download_resumable_windowed(
     prefix and re-raises, so every stream pauses together.
     """
     if offset % CHUNK_SIZE:
-        # A checkpoint inside a chunk cannot seed the stride; stay serial.
         return await download_resumable(
             tg,
             media,
@@ -302,14 +287,11 @@ async def download_resumable_windowed(
         except _StopRequested:
             pass
     except BaseException:
-        # As in the serial loop: bookkeeping never replaces the error.
         with contextlib.suppress(Exception):
             record()
         raise
     finally:
         with contextlib.suppress(Exception):
-            # Bytes past the prefix are unproven; drop them so the part file
-            # and its checkpoint agree.
             os.ftruncate(descriptor, prefix)
         os.close(descriptor)
     with open(part, "rb+") as handle:
