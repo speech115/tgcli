@@ -47,8 +47,6 @@ async def account_id(tg) -> int:
     try:
         return (await tg.get_me(input_peer=True)).user_id
     except AttributeError:
-        # Telethon knows the id but kept no access hash for it, and then
-        # fails building the input peer; the full user is the way around.
         return (await tg.get_me()).id
 
 

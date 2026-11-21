@@ -229,7 +229,6 @@ def test_media_download_resumes_a_checkpoint_from_the_bin_name(
         entities={"@chan": ns(id=5, title="C")},
     )
     make_session_fake(monkeypatch, client)
-    # A download from before the typed name was interrupted after one byte.
     source = media_cmd.MediaSource(chat="@chan", message_id=42, private_channel_id=None)
     state_path, part_path = media_cmd._state_paths(source)
     part_path.parent.mkdir(parents=True)

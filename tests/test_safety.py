@@ -78,7 +78,6 @@ def test_begin_commit_allows_retry_until_finished():
     payload = safety.begin_commit(preview["preview_id"])
 
     assert payload["text"] == "hi"
-    # Network failed mid-send: begin again succeeds with the same payload.
     assert safety.begin_commit(preview["preview_id"])["text"] == "hi"
     safety.finish_commit(preview["preview_id"])
     with pytest.raises(PolicyError):

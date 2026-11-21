@@ -124,18 +124,9 @@ async def sync_phase(
             "status": "unmapped",
         }
 
-    # Destination occupancy check — once in the clone's lifetime (see module
-    # docstring). Destinations are always Channel-shaped.
     dest_full = await tg(functions.channels.GetFullChannelRequest(destination))
     dest_pinned = getattr(dest_full.full_chat, "pinned_msg_id", None)
     if dest_pinned == decision.destination_id:
-        # Crash-window recovery: a previous run died between the pin RPC and
-        # the state save, so the destination already carries exactly the pin
-        # this run intended to set. Adopt it as tgcli's own work — repair
-        # state, no mutation, no audit row (the CLI contract reserves "set" for a
-        # mutation this run performed). Strictly the exact intended id: any
-        # other pinned message — even a cloned post from ``id_map`` — is the
-        # owner's choice and still latches occupied.
         clone_state.pinned_dest_id = decision.destination_id
         clone_state_mod.save(clone_state)
         return {

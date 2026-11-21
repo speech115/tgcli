@@ -83,7 +83,6 @@ def config_env(tmp_path, monkeypatch):
 
 
 def _argv(command, tail, peer):
-    # Options precede -- so marked negative peer IDs remain positional.
     options = ["--json"]
     positional = []
     if "--context" in tail:

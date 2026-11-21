@@ -71,7 +71,6 @@ def _channel(channel_id: int, username: str) -> Channel:
 
 
 def _messages(channel_id: int, ids: range) -> list[Message]:
-    # Newest first, as Telegram returns history.
     return [
         Message(
             id=mid,
@@ -96,7 +95,6 @@ class OneActivityClient(FakeClient):
     async def __call__(self, request):
         self.call_requests.append(request)
         if isinstance(request, GetFullChannelRequest):
-            # Skip subscription so UpdateChannelTooLong reaches the common tier.
             raise RuntimeError("pts unavailable")
         if isinstance(request, GetStateRequest):
             return _state(5)

@@ -51,8 +51,6 @@ def _raise_before(kind: str):
     raise Killed(kind)
 
 
-# An after-fault on an operation that sends nothing is the matching
-# before-fault: there is no answer to lose.
 _AS_BEFORE = {
     "lost": "connection",
     "kill_after": "kill",
@@ -135,8 +133,6 @@ class FaultyWorldClient(clone_world.WorldClient):
                 dest_id = assigned[random_id]
                 self.created.append((chat, source_id, dest_id))
                 if chat == "group":
-                    # What the group really holds: the fake would otherwise
-                    # show every unplanted id as one of Telegram's anchors.
                     self.group_tail[dest_id] = message(
                         dest_id,
                         chat=self.destination_group,
@@ -197,7 +193,7 @@ def shape(client, recorded) -> dict[tuple[str, int], tuple]:
     facts = {}
     for chat, source, dest in recorded:
         request = client.sent.get((chat, dest))
-        if request is None:  # copied by the earlier run the world seeded
+        if request is None:
             continue
         bodies = getattr(request, "multi_media", None) or [request]
         body = next((item for item in bodies if source_text(item) == source), bodies[0])

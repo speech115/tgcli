@@ -20,9 +20,6 @@ from telethon.tl import types
 from tgcli.clone.legs import AnyLeg
 from tgcli.tg_errors import unless_refused
 
-# One messages.Search per reposted post against the flood budget. The
-# window only has to cover the messages a single sender produced within one
-# second; candidates outside `fwd_from.date` are discarded anyway.
 SEARCH_LIMIT = 20
 
 _GROUP_KEY = "source-group"

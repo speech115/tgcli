@@ -35,8 +35,6 @@ class RunPace:
     """Request spacing for one sync run, shared by both of its legs."""
 
     def __init__(self) -> None:
-        # One slot for every send: Telegram counts the messages that land,
-        # whichever method put them there.
         self.send = pace.Pace(pace.SEND_INTERVAL_S)
         self.media = pace.Pace(pace.MEDIA_INTERVAL_S)
 
@@ -98,9 +96,6 @@ async def reupload_batch(
     source_ids = [m.id for m in messages]
     if by_reference:
         run.audit("clone-sync-reupload", source_ids)
-        # An unprotected source lets Telegram reuse its own file: no bytes
-        # move, and a sticker stays a sticker. Any refusal but a flood falls
-        # back to the byte copy below.
         try:
             return await _send(
                 run,
@@ -114,8 +109,6 @@ async def reupload_batch(
                 overflow,
             )
         except TRANSIENT_ERRORS:
-            # A timeout or 500 leaves the send's outcome unknown: reuploading
-            # could post the message twice.
             raise
         except telethon_errors.RPCError as exc:
             note(
@@ -143,7 +136,6 @@ async def reupload_batch(
             functions.messages.UploadMediaRequest(peer=destination, media=media)
         )
         input_media = telethon_utils.get_input_media(stored)
-        # The send carries the blur; UploadMedia's echo need not keep it.
         input_media.spoiler = media.spoiler
         return input_media
 
@@ -223,8 +215,6 @@ async def _send(
     return await _send_fitting_captions(run, request, messages, overflow)
 
 
-# The caption limit without Premium. A Premium author may post up to 4096, so
-# a copy by an account without it is refused MEDIA_CAPTION_TOO_LONG.
 CAPTION_LIMIT = 1024
 
 
@@ -397,11 +387,10 @@ async def _unavailable_emoji(tg, document_ids) -> set[int]:
             document_id=sorted(document_ids)
         )
     )
-    # Telegram answers a gone emoji with DocumentEmpty, not by omitting it.
     unavailable = set(document_ids) - {
         document.id for document in documents if isinstance(document, types.Document)
     }
-    sets = {}  # set id -> (InputStickerSetID, its emoji document ids)
+    sets = {}
     for document in documents:
         for attribute in getattr(document, "attributes", ()):
             if not isinstance(attribute, types.DocumentAttributeCustomEmoji):
@@ -449,8 +438,6 @@ async def forward_batch(
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
-    # A proven original outranks the attribution prefix, because forwarding
-    # it carries Telegram's own header instead of describing one.
     proven = None
     if run.reforward_cache is not None and reforward.eligible(leg, messages, plan):
         proven = await reforward.locate(
@@ -535,7 +522,6 @@ async def forward_batch(
             reply_to,
             author,
             plan,
-            # Protected content is refused by reference, so only bytes copy it.
             by_reference=not getattr(source, "noforwards", False)
             and not any(getattr(m, "noforwards", False) for m in messages),
             overflow=overflow,
@@ -549,8 +535,6 @@ async def forward_batch(
     destination_ids = _settle(
         run, leg, response, random_ids, "the complete cloned batch", record
     )
-    # After the save: a failed rest must not leave the post unmapped and
-    # copied again by the next run.
     await send_caption_rests(
         run,
         destination,
@@ -560,8 +544,5 @@ async def forward_batch(
         threaded=reply_to is not None,
     )
     if mode == "reuploaded":
-        # Only a confirmed send *and* a durable mapping save may clear the
-        # cache: an incomplete confirmation or a crash before the save
-        # must leave the downloaded bytes for the next run's resume.
         shutil.rmtree(reupload.cache_dir(clone_state), ignore_errors=True)
     return len(source_ids), mode, plan.reply_flattened, plan.quote_flattened

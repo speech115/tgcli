@@ -172,7 +172,6 @@ class FakeClient:
         return key
 
     def add_event_handler(self, callback, event):
-        # Telethon 1.44 returns None here: removal must go by callback.
         self.event_handlers.append((callback, event))
 
     def remove_event_handler(self, callback, event=None):
@@ -337,15 +336,10 @@ def ns(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**kwargs)
 
 
-# "Ask again later", never "Telegram refused": one of each family the client
-# boundary surfaces (tg_errors.TRANSIENT_ERRORS). Factories, so each test gets a
-# fresh error; a flood of either kind is exit 5, the others an untranslated 1.
 TRANSIENT_ERRORS = [
     pytest.param(
         lambda: telethon_errors.FloodWaitError(request=None, capture=30), id="flood"
     ),
-    # FLOOD_PREMIUM_WAIT_X: the download/upload speed limit a non-Premium
-    # account meets. Another 420, never a refusal of the item.
     pytest.param(
         lambda: telethon_errors.FloodPremiumWaitError(request=None, capture=30),
         id="premium-flood",
@@ -360,16 +354,12 @@ TRANSIENT_ERRORS = [
         ),
         id="timeout",
     ),
-    # Telethon's own internal-retry family (RPC_CALL_FAIL, RPC_MCGET_FAIL,
-    # INTERDC_N_CALL_*) maps to ServerError subclasses; built from the wire
-    # so a Telethon upgrade that moves them out of ServerError fails here.
     pytest.param(
         lambda: telethon_errors.rpc_message_to_error(
             tl_types.RpcError(error_code=500, error_message="RPC_CALL_FAIL"), None
         ),
         id="rpc-call-fail",
     ),
-    # Telethon's reconnects ran out mid-request.
     pytest.param(
         lambda: ConnectionError("Connection to Telegram failed 5 time(s)"),
         id="connection",

@@ -33,7 +33,6 @@ async def test_resolve_total_requeries_after_phase_reset():
     await reporter.resolve_total(tg, comments)
     reporter.batch(1, "forwarded")
 
-    # Each leg asks its own source for its own total (#174).
     assert calls == [(posts, 0), (comments, 0)]
     assert lines == [
         "[sync 123] 11/~50 · forwarded",
@@ -48,9 +47,9 @@ def test_transfer_callback_reports_every_five_megabytes():
     size = 12 * progress.MEGABYTE
     report = reporter.transfer("clip.mp4", "download")
 
-    report(1 * progress.MEGABYTE, size)  # below the threshold — silent
+    report(1 * progress.MEGABYTE, size)
     report(6 * progress.MEGABYTE, size)
-    report(7 * progress.MEGABYTE, size)  # only 1 MB since the last line
+    report(7 * progress.MEGABYTE, size)
     report(size, size)
 
     assert lines == [

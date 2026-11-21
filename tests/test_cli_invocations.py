@@ -132,7 +132,7 @@ def test_keyboard_interrupt_journals_an_honest_row_and_propagates(
 
     async def interrupted():
         raise KeyboardInterrupt
-        yield  # pragma: no cover — makes this an async generator
+        yield  # pragma: no cover
 
     client.iter_dialogs = interrupted
     make_session_fake(monkeypatch, client)

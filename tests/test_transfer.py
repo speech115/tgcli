@@ -103,7 +103,7 @@ async def test_windowed_download_selects_largest_photo_size_not_list_order(tmp_p
 
     large = types.PhotoSize(type="x", w=1024, h=1024, size=50_000)
     small = types.PhotoSize(type="m", w=256, h=256, size=5_000)
-    media = _photo_media(sizes=[large, small])  # largest first — adversarial
+    media = _photo_media(sizes=[large, small])
     tg = FakeStrideTelegram()
 
     await transfer.download_resumable_windowed(
@@ -120,7 +120,6 @@ async def test_windowed_download_selects_largest_photo_size_not_list_order(tmp_p
     info = telethon_utils._get_file_info(passed)
     assert info.location.thumb_size == "x"
     assert info.size == 50_000
-    # Original media must stay untouched for callers that still hold it.
     assert media.photo.sizes[-1].type == "m"
 
 

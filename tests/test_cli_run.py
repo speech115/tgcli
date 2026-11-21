@@ -209,8 +209,6 @@ def test_ping_stays_a_read(tmp_path, monkeypatch):
 def test_a_timeout_error_after_the_deadline_is_still_the_deadline(
     tmp_path, monkeypatch, capsys
 ):
-    # Past --timeout, inside the grace window, a socket-style TimeoutError is
-    # the deadline expiring (CONTRACT §4 TIMEOUT), not a RUNTIME failure.
     _, path = setup(
         tmp_path,
         monkeypatch,

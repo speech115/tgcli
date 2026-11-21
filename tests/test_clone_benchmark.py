@@ -9,9 +9,6 @@ from telethon.tl import types
 
 from tests.fakes import clone_bench
 
-# Wall time is machine-dependent, so it is held only to a ceiling that a
-# healthy run clears many times over (about a second on a laptop); request
-# counts and state writes are the exact, deterministic cost.
 SECONDS_CEILING = 30.0
 
 

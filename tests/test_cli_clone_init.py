@@ -1120,7 +1120,6 @@ def test_clone_init_commit_refuses_while_another_run_holds_the_clone(
     assert client.requests == []
     assert state.load(clone_id) is None
 
-    # The refused commit did not spend its preview.
     assert main([*argv, "--json"]) == 0
     assert state.load(clone_id).destination_peer_id == 999
 

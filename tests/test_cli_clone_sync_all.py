@@ -7,8 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 from tests.conftest import make_session_fake
 from tests.fakes.clone import CloneSyncClient, message, seed_clone
-
-# A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
@@ -46,7 +44,7 @@ def test_sync_all_copies_every_clone_and_reruns_idle_from_one_batched_read(
     rerun = json.loads(capsys.readouterr().out)
     assert rerun["clones"][0]["sync"]["up_to_date"] is True
     assert len(client.peer_dialog_requests) == 2
-    assert client.newest_requests == []  # the batch answered the idle check
+    assert client.newest_requests == []
 
 
 def test_sync_all_refuses_every_clone_while_one_remembers_a_flood(

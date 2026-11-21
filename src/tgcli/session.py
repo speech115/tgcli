@@ -37,9 +37,6 @@ def session_path(account: Account, role: str | None = None) -> Path:
         stem = _role_stem(account, role)
     sessions_dir = state_dir() / "sessions"
     path = sessions_dir / f"{stem}.session"
-    # Defense in depth (T07): load_config already rejects an escaping stem,
-    # but an Account built directly (a future caller, a test double) must
-    # not be able to make this resolve outside sessions/ either.
     if path.resolve().parent != sessions_dir.resolve():
         raise ConfigError(
             f"session {stem!r} would resolve outside the sessions directory"
@@ -132,8 +129,6 @@ def lock_held(session_file: Path) -> bool | None:
     return lock_file_held(session_file.with_suffix(".lock"))
 
 
-# How long a command waits for a session another tg process holds. Agents run
-# in parallel; failing at once only made them retry (618 exit 3s in 30 days).
 BUSY_WAIT_SECONDS = 120.0
 _BUSY_POLL_SECONDS = 0.1
 
@@ -192,11 +187,6 @@ def session_file_lock(
         handle.close()
 
 
-# A mutation is never retried blind: a timeout or a 500 leaves its outcome
-# unknown. Telethon has no setting that resends after a flood only, and with
-# no retries it would sleep the flood and raise it anyway, so a session that
-# may write raises a flood at once. The call site that knows a send is safe
-# to repeat resends it once through `pace.Pace.call`.
 _NO_RESEND = {"request_retries": 0, "flood_sleep_threshold": 0}
 
 
@@ -225,13 +215,10 @@ def build_client(path: Path, api_id: int, api_hash: str, **extra) -> Client:
 def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
-    # An authorized session never needs pushed updates (see `Client`); login
-    # keeps them, since sign-in flows may wait on one.
     extra = {"receive_updates": False, **(_NO_RESEND if mutation_safe else {})}
     return build_client(path, account.api_id, account.api_hash, **extra)
 
 
-# Session files a long-lived owner keeps open (`hold`), and their clients.
 _held: dict[Path, TelegramClient] = {}
 
 
@@ -265,12 +252,8 @@ def lock_free(session_file: Path) -> bool:
 async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
     if not tg.is_connected():
         await tg.connect()
-    # Each command sees its own `get_me()`, as a fresh connection would.
     vars(tg).pop("_cached_me", None)
-    # A fresh client per command used to drop whatever a command installed on
-    # it (`tg run`'s write gate wraps `_call`); the held one must give it back.
     call = vars(tg).get("_call")
-    # A held client is built for reads: a mutating command gets `_NO_RESEND`.
     retries, flood_sleep = tg._request_retries, tg.flood_sleep_threshold
     if mutation_safe:
         tg._request_retries = _NO_RESEND["request_retries"]
@@ -300,7 +283,6 @@ async def client(
     path = session_path(account, role)
     label = session_label(account, role)
     if path in _held:
-        # A second client would wait on the lock the holder keeps.
         async with _reuse(_held[path], label, mutation_safe=mutation_safe) as tg:
             yield tg
         return
@@ -313,7 +295,6 @@ async def client(
     with session_file_lock(path, label=label, wait=BUSY_WAIT_SECONDS):
         create_private(path)
         tg = _make_client(path, account, mutation_safe=mutation_safe)
-        # A session made before create_private existed may still be loose.
         restrict_file(path)
         try:
             await tg.connect()
@@ -331,9 +312,8 @@ async def client(
                 )
             yield tg
         except telethon_errors.UnauthorizedError as exc:
-            # Revoked, expired, unregistered, deactivated: one remedy.
             raise ConfigError(
                 f"session {label!r} needs reauthentication; authorize it again"
             ) from exc
         finally:
-            await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
+            await tg.disconnect()  # type: ignore

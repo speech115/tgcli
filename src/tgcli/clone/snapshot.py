@@ -56,7 +56,7 @@ def _poll_snapshot(
         return text, []
     options = []
     for answer in media.poll.answers:
-        voters = raw_counts.get(answer.option, 0)  # type: ignore  # Telethon stub union
+        voters = raw_counts.get(answer.option, 0)  # type: ignore
         percent = round(voters * 100 / total) if total else 0
         options.append(
             f"{answer.text.text}\n{_bar(percent)} {percent}% · "
@@ -123,8 +123,6 @@ async def _capture_breakdown(
     )
 
     async def retract_vote() -> None:
-        # A FloodWait is not special here: propagating it would kill the run
-        # before the poll_votes tail and leave the vote standing silently.
         try:
             await tg(retract)
         except (telethon_errors.RPCError, OSError) as exc:
@@ -223,7 +221,6 @@ async def render(
     assert isinstance(media, types.MessageMediaStory), (
         "render() requires fidelity.supports()"
     )
-    # A private/deleted peer is a missing author label, never a failed sync.
     peer_entity, _ = await unless_refused(tg.get_entity(media.peer))
     title = getattr(peer_entity, "title", None)
     name = " ".join(

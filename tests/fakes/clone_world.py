@@ -44,27 +44,27 @@ SENDS = (
 class Reply:
     """A reply header's parent: an id in the channel or in the group."""
 
-    space: str  # "channel" or "group"
+    space: str
     id: int
 
 
 @dataclass(frozen=True)
 class Post:
     id: int
-    copied_before: bool  # at or below its cursor, so an earlier run copied it
-    dest_anchor_kept: bool  # that earlier copy still has its group anchor
-    anchor: int | None  # source group id of Telegram's auto-forward
-    anchor_present: bool  # the source anchor can still be read
-    anchor_remembered: bool  # the earlier run recorded the anchor pair
+    copied_before: bool
+    dest_anchor_kept: bool
+    anchor: int | None
+    anchor_present: bool
+    anchor_remembered: bool
     reply: Reply | None = None
-    album: int | None = None  # grouped_id shared with its neighbours
+    album: int | None = None
 
 
 @dataclass(frozen=True)
 class Comment:
     id: int
-    thread: int  # the post whose discussion it belongs to
-    copied_before: bool  # at or below its cursor, so an earlier run copied it
+    thread: int
+    copied_before: bool
     reply: Reply
 
 
@@ -75,7 +75,7 @@ class World:
     deleted_group_ids: tuple[int, ...]
     posts_cursor: int
     discussion_cursor: int
-    window: int  # posts per interleaved window (legs.WINDOW)
+    window: int
 
     def post(self, post_id: int) -> Post | None:
         return next((item for item in self.posts if item.id == post_id), None)
@@ -95,8 +95,6 @@ def worlds(draw) -> World:
     posts_cursor = draw(st.sampled_from([0, *post_ids]))
     posts = []
     for post_id in post_ids:
-        # A sync records a copy and moves the cursor in one step, so every
-        # post at or below the cursor was copied; a lost source is an id gap.
         copied_before = post_id <= posts_cursor
         kept = copied_before and draw(st.booleans())
         posts.append(
@@ -110,8 +108,6 @@ def worlds(draw) -> World:
             )
         )
 
-    # The group, oldest first: anchors, comments under an earlier anchor, and
-    # ids whose message is gone.
     comments: list[Comment] = []
     deleted: list[int] = []
     for group_id in range(1, draw(st.integers(0, 8)) + 1):
@@ -134,15 +130,11 @@ def worlds(draw) -> World:
             if choice == "anchor":
                 reply = Reply("group", thread.anchor)
             elif choice == "comment" and (siblings or deleted):
-                # An earlier comment in the same thread, or one since deleted.
                 reply = Reply("group", draw(st.sampled_from(siblings + deleted)))
             else:
-                # A channel post, copied or not, or a channel id nothing carries.
                 reply = Reply("channel", draw(st.integers(1, max(post_ids) + 1)))
             comments.append(Comment(group_id, thread.id, False, reply))
 
-    # The comments leg stops before an anchor whose post the posts leg has not
-    # reached, so everything it already passed sits below such an anchor.
     reachable = [0]
     for group_id in sorted(
         [item.anchor for item in posts if item.anchor is not None]
@@ -158,8 +150,6 @@ def worlds(draw) -> World:
         replace(item, copied_before=item.id <= discussion_cursor) for item in comments
     ]
 
-    # A post replies to an earlier post, a comment, an anchor, a deleted id in
-    # either chat, or nothing.
     replied = []
     for post in posts:
         parents = [Reply("channel", item.id) for item in posts if item.id < post.id]
@@ -177,9 +167,6 @@ def worlds(draw) -> World:
         replied.append(replace(post, reply=reply))
     window = draw(st.sampled_from([1, 2, 50]))
 
-    # Neighbouring posts without a reply may form an album, which the clone
-    # forwards in one request carrying several ids. Drawn last, so the album
-    # choice never reshapes the rest of the world.
     for index in range(1, len(replied)):
         previous, post = replied[index - 1], replied[index]
         if previous.reply is None and post.reply is None and draw(st.booleans()):
@@ -265,7 +252,6 @@ def _header(reply: Reply, *, sender: str, thread_anchor: int | None):
         peer = None if reply.space == "channel" else types.PeerChannel(SOURCE_GROUP)
         return types.MessageReplyHeader(reply_to_msg_id=reply.id, reply_to_peer_id=peer)
     if reply.space == "group" and reply.id == thread_anchor:
-        # A top-level comment replies to the anchor itself and has no top.
         return types.MessageReplyHeader(reply_to_msg_id=reply.id)
     peer = types.PeerChannel(SOURCE_CHANNEL) if reply.space == "channel" else None
     return types.MessageReplyHeader(

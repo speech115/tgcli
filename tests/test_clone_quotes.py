@@ -1,4 +1,3 @@
-# tests/test_clone_quotes.py
 """Resolver unit tests for clone quote replies."""
 
 import asyncio
@@ -175,7 +174,6 @@ def _forbidden_case(chats, *, history_error=None):
     messages = [_msg(2374, reply_to=header, message="author text")]
     leg = discussion(discussion_id_map={2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    # get_entity raises → unreachable
     client = FakeClient(chats=chats, history_error=history_error)
     return messages, plan, leg, client, _ctx(client)
 
@@ -199,12 +197,10 @@ def test_forbidden_peer_title_comes_from_the_enclosing_history_response():
     assert resolved.body_prefix is not None
     assert resolved.body_prefix.startswith(head)
     assert "id 2275285084" not in resolved.body_prefix
-    # The blockquote still covers exactly the quote, not the label line.
     (blockquote,) = resolved.body_prefix_entities
     assert isinstance(blockquote, types.MessageEntityBlockquote)
     assert blockquote.offset == attribution.utf16_len(head)
     assert blockquote.length == attribution.utf16_len("foreign quote")
-    # Titles are cached per run: a second resolve must not re-request history.
     asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
     assert len(client.history_calls) == 1
 
@@ -291,15 +287,12 @@ def test_quiet_trap_a_foreign_parent_id_is_never_walked_against_the_group():
     leg = discussion(id_map={789: 773})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     ctx = _threaded_ctx(FakeClient())
-    # The group's own message 1244 happens to be the anchor of source post 789,
-    # mapped to destination post 773 whose anchor is 550.
     ctx.anchors[1244] = 789
     ctx.anchor_cache[773] = 550
 
     resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
 
     assert resolved.body_prefix is not None
-    # Never a native reply at 550, and never the foreign quote on top of it.
     assert resolved.reply_to is None
     assert resolved.quote_flattened["reason"] == "unreachable"
 
@@ -327,7 +320,7 @@ def test_degrade_keeps_the_thread_placement_the_rejected_send_resolved():
     ctx.anchor_cache[773] = 550
     resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
     assert resolved.reply_to.top_msg_id == 550
-    assert leg.dest_for(2373) is None  # the anchor is never in the leg's map
+    assert leg.dest_for(2373) is None
 
     degraded = quotes.degrade_to_fallback(
         messages, resolved, leg, DISCUSSION_SOURCE, ctx
@@ -370,7 +363,6 @@ def test_stale_quote_is_dropped_and_the_reply_link_survives():
     )
 
     assert stripped is not None
-    # The reply still points at the mapped destination message.
     assert stripped.reply_to.reply_to_msg_id == 550
     assert stripped.reply_to.quote_text is None
     assert stripped.reply_to.quote_offset is None
@@ -379,7 +371,6 @@ def test_stale_quote_is_dropped_and_the_reply_link_survives():
         "peer": 4301599563,
         "reason": "quote-rejected",
     }
-    # The original plan is untouched — the retry must not mutate the first send.
     assert plan.reply_to.quote_text == "Им самих не смущает эта хуйня?"
 
 

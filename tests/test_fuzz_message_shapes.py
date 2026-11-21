@@ -174,7 +174,6 @@ CHATS = st.one_of(
 def test_any_message_serializes_to_utf8_json(message, chat):
     row = message_to_dict(message, chat)
 
-    # What `emit_json` does, then what the stdout encoder does with it.
     encoded = json.dumps(row, ensure_ascii=False, default=str).encode("utf-8")
     assert json.loads(encoded)["id"] == message.id
     assert isinstance(row["text"], str)

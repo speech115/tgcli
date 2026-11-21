@@ -16,7 +16,6 @@ from tgcli.errors import PolicyError
 CURSOR_PREFIX = "v1:"
 
 
-# The stored cursor is unreadable only if someone edited the database.
 REPAIR = "manual repair is required"
 
 
@@ -24,7 +23,7 @@ REPAIR = "manual repair is required"
 class ChangesCursor:
     pts: int
     qts: int
-    date: int  # unix seconds
+    date: int
     seq: int
 
 

@@ -70,7 +70,6 @@ ENTITIES = st.builds(
     st.integers(min_value=1, max_value=2**40),
 )
 
-# (argv, where the dialog id sits in the JSON)
 ENTITY_SCOPED = [
     (["read", "@peer"], ("dialog", "id")),
     (["message", "@peer", "1"], ("dialog", "id")),

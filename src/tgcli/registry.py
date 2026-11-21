@@ -88,7 +88,6 @@ def _flag(name: str) -> Predicate:
 
 
 def _login_deadline(args: argparse.Namespace) -> float | None:
-    # `--continue` waits on a person typing a code: no implicit deadline.
     return None if getattr(args, "continue_id", None) else 60.0
 
 
@@ -98,7 +97,6 @@ _HANDSHAKE = Command(
     needs="network",
     run=handlers.handshake,
     gate="handshake",
-    # The handshake registry names the commits that must not be retried blind.
     mutation_safe=preview_commit.mutation_safe,
 )
 
@@ -133,7 +131,6 @@ COMMANDS: dict[str, Command] = {
         deadline=_login_deadline,
         prepare=preflight.prepare_login,
     ),
-    # archive: local reads and writes of the archive store
     "archive list": _archive_read(archive.list_scope),
     "archive read": _archive_read(
         archive.read,
@@ -182,9 +179,7 @@ COMMANDS: dict[str, Command] = {
         mutation_safe=_always,
         prepare=preflight.limit("clone sync"),
     ),
-    # local housekeeping
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
-    # Telegram reads
     "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
     "message": _READ,
@@ -208,7 +203,6 @@ COMMANDS: dict[str, Command] = {
         deadline=None,
         prepare=_then(preflight.bounds("since"), preflight.limit("media manifest")),
     ),
-    # Network reads that write the caller's own output files
     "media download": Command(
         kind="read",
         needs="network",
@@ -223,7 +217,6 @@ COMMANDS: dict[str, Command] = {
         deadline=None,
         prepare=preflight.limit("export messages"),
     ),
-    # Telegram writes
     "send": _HANDSHAKE,
     "edit": _HANDSHAKE,
     "delete": _HANDSHAKE,

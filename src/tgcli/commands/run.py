@@ -25,9 +25,6 @@ from tgcli.messages import message_to_dict
 from tgcli.output import note
 
 READ_VERBS = ("get", "search", "check", "resolve")
-# Getters with a side effect: pressing a bot button
-# or querying an inline bot, publishing a location, counting a view, an ad
-# impression.
 SIDE_EFFECT_GETTERS = frozenset(
     {
         "contacts.getLocated",
@@ -37,22 +34,11 @@ SIDE_EFFECT_GETTERS = frozenset(
         "messages.getSponsoredMessages",
     }
 )
-# Telethon exports this session's authorization to another datacentre to
-# download media stored there. It is session plumbing, not a user write.
 PLUMBING = frozenset({"auth.exportAuthorization"})
-# Credentials and account lifecycle stay with `tg accounts`: refused even to
-# read, since auth.checkPassword and account.getTmpPassword only look like
-# reads.
 DENIED_NAMESPACES = frozenset({"account", "auth"})
-# The root namespace is MTProto session plumbing: `destroyAuthKey` and
-# `destroySession` end the session like a logout, the rest is key exchange.
-# Only the pings are let through; invoke wrappers are unwrapped before this.
 ROOT_ALLOWED = frozenset({"functions.ping", "functions.pingDelayDisconnect"})
 
 
-# A getter that takes one of these acts on it: rotating a stream key
-# (`revoke`), accepting or declining an offer (`decline`), a cloud-password
-# check (`password`). It is a write whatever its name says.
 WRITE_ARGUMENTS = frozenset({"decline", "password", "revoke"})
 
 
@@ -188,7 +174,6 @@ async def run(client, code, account: str, *, argv: list[str], write: bool) -> di
     except (TgcliError, telethon_errors.RPCError):
         raise
     except Exception:
-        # The script's own bug: its traceback is what the agent fixes it from.
         note(mask_phones_in_text(traceback.format_exc()).rstrip())
         raise
     finally:

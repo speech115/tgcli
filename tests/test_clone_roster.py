@@ -132,7 +132,6 @@ def test_collect_marks_discussion_unavailable_when_group_turned_private(error):
     assert result["discussion"]["status"] == "unavailable"
     assert result["discussion"]["reason"] == type(error).__name__
     assert result["discussion"]["count"] == 0
-    # the finished message sync still reports its own rows
     assert [row["id"] for row in read_lines(clone_state)] == [1]
 
 

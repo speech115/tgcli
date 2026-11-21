@@ -64,7 +64,6 @@ class FakeTg:
     async def get_entity(self, ref):
         key = ref if not isinstance(ref, int) else ref
         if key not in self.entities and isinstance(ref, int):
-            # marked peer → channel
             from telethon import utils
 
             real, peer_type = utils.resolve_id(ref)

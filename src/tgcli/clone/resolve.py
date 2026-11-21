@@ -13,9 +13,6 @@ from tgcli import chatref
 from tgcli.clone import attribution, discussion, lookup
 from tgcli.errors import NotFoundError, PolicyError
 
-# What Telegram answers when the recorded destination cannot be opened by this
-# account any more — deleted, left, or banned. ``channels.GetChannels`` raises
-# these; Telethon's own ValueError covers a peer it cannot resolve at all.
 DESTINATION_UNAVAILABLE = discussion.PEER_UNAVAILABLE
 
 
@@ -46,8 +43,6 @@ async def resolve_source(tg, source: str, *, account_user_id: int | None = None)
     try:
         entity = await tg.get_entity(ref)
     except DESTINATION_UNAVAILABLE:
-        # ValueError plus the peer-refusal family: from here they all mean the
-        # same operable thing — this account cannot open that source.
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)

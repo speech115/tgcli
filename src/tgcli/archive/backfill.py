@@ -157,7 +157,6 @@ async def backfill_one(
             elif action == "updated":
                 updated += 1
             ids.append(int(payload["id"]))
-        # If we filled the page, assume there may be older history.
         more = stored >= limit and limit > 0
     except FLOOD_ERRORS as exc:
         seconds = int(exc.seconds)

@@ -21,8 +21,6 @@ from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS, unless_refused
 
 async def _discussion_roster(tg, clone_state, group, refusal, rows: list) -> dict:
     if refusal is not None:
-        # The roster runs after the copying is done; a refusal here is a
-        # marker, never an exception out of a finished sync.
         reason = (
             type(refusal).__name__
             if isinstance(refusal, telethon_errors.RPCError)
@@ -51,8 +49,6 @@ def path_for(clone_id: str) -> Path:
     return state.clones_dir() / f"{clone_id}-participants.jsonl"
 
 
-# The sidecar's own mtime says when the roster was last written, so no state
-# records it.
 REFRESH_S = 24 * 60 * 60
 
 
@@ -86,7 +82,6 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
             tg.iter_participants(entity), pace.PARTICIPANTS_PAGE
         ):
             if pace.exhausted():
-                # --max-runtime bounds the whole sync, the listing included.
                 return [], "deferred", "wall_clock_cap"
             rows.append(_row(peer, participant))
     except TRANSIENT_ERRORS as exc:
@@ -180,7 +175,5 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
 
     path = path_for(clone_state.clone_id)
     if "deferred" not in (source["status"], discussion["status"]):
-        # A deferral keeps the last full snapshot and its age, so the next run
-        # retries instead of waiting out `REFRESH_S`.
         path = _write(clone_state.clone_id, rows)
     return {"path": str(path), "source": source, "discussion": discussion}

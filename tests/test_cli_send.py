@@ -323,7 +323,6 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     [uploaded_path] = client.uploaded
     assert Path(uploaded_path) != photo
     assert not Path(uploaded_path).exists()
-    # The snapshot has no extension; Telegram rejects a photo upload without one.
     assert client.file_names == ["pic.jpg"]
 
 
@@ -433,7 +432,6 @@ def _mp4(
     mvhd = bytes(4) + bytes(8) + timescale.to_bytes(4, "big")
     mvhd += duration.to_bytes(4, "big") + bytes(80)
     audio_tkhd = bytes(4) + bytes(20) + bytes(52) + bytes(8)
-    # Display matrix: a quarter turn swaps a=1 for b=1 (16.16 fixed point).
     unit = (1 << 16).to_bytes(4, "big")
     matrix = bytes(4) + unit if turned else unit + bytes(4)
     video_tkhd = bytes(4) + bytes(20) + bytes(16) + matrix + bytes(28)
@@ -441,7 +439,6 @@ def _mp4(
     moov = _box(b"mvhd", mvhd)
     moov += _box(b"trak", _box(b"tkhd", audio_tkhd))
     moov += _box(b"trak", _box(b"tkhd", video_tkhd))
-    # moov after mdat, as in a recording that was never made fast-start.
     return (
         _box(b"ftyp", b"isom" + bytes(4))
         + _box(b"mdat", bytes(64))
@@ -460,7 +457,6 @@ def _video_request(client, clip, *, random_id, mime, video):
             file=SimpleNamespace(name=client.uploaded[0]),
             mime_type=mime,
             attributes=[video, types.DocumentAttributeFilename(clip.name)],
-            # Unset, Telegram may turn a video without sound into a GIF.
             nosound_video=True,
         ),
     )
@@ -492,9 +488,7 @@ def test_send_commit_sends_mp4_as_streamable_video(config_env, monkeypatch, tmp_
 def test_send_commit_sends_non_mp4_video_as_video_without_streaming(
     config_env, monkeypatch, tmp_path, name
 ):
-    # Telegram streams only MP4-like containers; claiming it for others
-    # breaks playback instead of falling back to a download.
-    mime = mimetypes.guess_type(name)[0]  # host tables differ, e.g. avi
+    mime = mimetypes.guess_type(name)[0]
     assert mime.startswith("video/")
     clip = tmp_path / name
     clip.write_bytes(b"not an iso media file")

@@ -63,7 +63,6 @@ def _global_flags() -> _Parser:
     return global_flags
 
 
-# Dests every subcommand accepts; not part of any one command's arguments.
 GLOBAL_DESTS = frozenset(action.dest for action in _global_flags()._actions)
 
 

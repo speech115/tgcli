@@ -46,9 +46,6 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-# Peer class per source kind: a User/Chat/Channel can share a
-# bare numeric id; not split further, since a megagroup toggling into a
-# forum keeps its channel_id and must stay one slot.
 _PEER_CLASS = {
     "dialog": "user",
     "basic": "chat",
@@ -144,19 +141,11 @@ class CloneState:
     topic_map: dict[int, int] = field(default_factory=dict)
     version: int = VERSION
     destination_peer_id: int | None = None
-    # Last name the destination was seen under, recorded by clone init and
-    # clone sync so the offline `clone status` can say which channel a clone writes to
-    # (a private destination has no username to look up). Null until the
-    # clone is next touched by a command that resolves the peer.
     destination_title: str | None = None
     destination_username: str | None = None
     creation_marker: str | None = None
     cursor: int = 0
     id_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
-    # When a FloodWait this clone could not ride out ends. `clone
-    # sync` writes it on exit 5, refuses before any request while it lies in
-    # the future, and clears it on a completed run. An older flood
-    # budget introduced the field.
     retry_not_before: str | None = None
     created_at: str = ""
     last_synced_at: str | None = None
@@ -169,25 +158,14 @@ class CloneState:
     )
     comments: Comments = Comments.NONE
     avatar_photo_ids: dict[int, int] = field(default_factory=dict)
-    # Source discussion anchor id -> destination anchor id, so a later run
-    # places a comment without re-reading either anchor.
     anchor_map: dict[SourceCommentId, DestCommentId] = field(default_factory=dict)
-    # Source message -> the message carrying the rest of its split caption.
-    # Not copies of source messages, but the clone's own: the tail guard counts
-    # them (`max_destination_id`).
     caption_rest_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
     discussion_caption_rest_map: dict[SourceCommentId, DestCommentId] = field(
         default_factory=dict
     )
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
-    # Per leg kind, the send about to happen: ``{"kind": "batch" | "rest",
-    # "sources": [source ids]}``. Saved before the send and cleared by the
-    # save that maps it, so one left behind names what a crashed run sent
-    # (``clone.journal``).
     send_intents: dict[str, dict] = field(default_factory=dict)
-    # Map writes since the last save; ``save`` applies them in order. A state
-    # that was never saved starts empty, so its pending list is its whole map.
     _pending: list[Pending] = field(
         default_factory=list, init=False, repr=False, compare=False
     )
@@ -459,7 +437,7 @@ def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) ->
     try:
         legacy_state = load(legacy)
     except PolicyError:
-        return canonical  # corrupt legacy slot: left for manual repair
+        return canonical
     same_class = legacy_state and _PEER_CLASS.get(
         legacy_state.source_kind
     ) == _PEER_CLASS.get(source_kind)

@@ -24,7 +24,6 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
-# Keys whose string values come from other Telegram users (CONTRACT §5).
 UNTRUSTED_KEYS = frozenset(
     {
         "text",
@@ -49,18 +48,8 @@ CLOSE = "⟦/untrusted:{nonce}⟧"
 _FENCE_CHARS = ("⟦", "⟧")
 _FENCE_REPLACEMENTS = {"⟦": "[", "⟧": "]"}
 
-_INVISIBLE = re.compile(
-    "["
-    "​‌‎‏"  # zero-width space/non-joiner, LRM, RLM
-    "‪-‮"  # bidi embeddings and overrides
-    "⁠-⁤"  # word joiner, invisible operators
-    "⁦-⁩"  # bidi isolates
-    "﻿"  # zero-width no-break space
-    "\U000e0000-\U000e007f"  # tag characters
-    "]"
-)
+_INVISIBLE = re.compile("[​‌‎‏‪-‮⁠-⁤⁦-⁩﻿\U000e0000-\U000e007f]")
 
-# (signal name, pattern). Case-insensitive; Russian and English.
 _SIGNALS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     (name, re.compile(pattern, re.IGNORECASE | re.MULTILINE))
     for name, pattern in (

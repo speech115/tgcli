@@ -37,7 +37,6 @@ def env(tmp_path, monkeypatch):
     (state / "sessions").mkdir()
     monkeypatch.setenv("TGCLI_CONFIG", str(config_path))
     monkeypatch.setenv("TGCLI_STATE_DIR", str(state))
-    # Headless: no native dialog unless a test opts in.
     monkeypatch.setattr(desktop, "dialog_available", lambda: False)
     return {"config": config_path, "state": state}
 

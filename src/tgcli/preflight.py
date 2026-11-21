@@ -54,8 +54,6 @@ def _prepare_max_runtime(args) -> None:
     cap = getattr(args, "max_runtime", None)
     if cap is not None and (not math.isfinite(cap) or cap <= 0):
         raise PolicyError("--max-runtime must be a positive finite number of seconds")
-    # --timeout is a hang detector; a non-positive deadline is meaningless
-    # and behaves differently for local vs network commands (review D2).
     timeout = getattr(args, "timeout", None)
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise PolicyError("--timeout must be a positive finite number of seconds")

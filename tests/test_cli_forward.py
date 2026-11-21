@@ -192,7 +192,6 @@ def test_forward_commit_sends_one_forward_request(config_env, monkeypatch, capsy
         for line in safety.audit_path().read_text().splitlines()
     ]
     assert actions == ["forward", "forward-result"]
-    # The preview is spent: a second commit is refused, not forwarded again.
     assert main(["forward", "--commit", preview["preview_id"]]) == 2
     assert len(client.forwards) == 1
 
@@ -212,8 +211,6 @@ def test_forward_copy_and_silent_reach_the_request(config_env, monkeypatch, caps
 
 
 def test_forward_commit_retry_reports_already_sent(config_env, monkeypatch, capsys):
-    # The first attempt reached Telegram but its answer was lost; the retry
-    # reuses the preview's random_id, so Telegram refuses a second copy.
     preview = forward_preview(random_id=123)
     client = make_client(
         outcomes=[ConnectionError("lost"), RandomIdDuplicateError(request=None)]
@@ -296,8 +293,6 @@ def test_forward_preview_refuses_a_protected_source(config_env, monkeypatch, cap
 def test_forward_commit_refused_by_telegram_is_one_error_envelope(
     config_env, monkeypatch, capsys
 ):
-    # A chat protected after its preview: Telegram's refusal is reported, not
-    # a traceback.
     preview = forward_preview()
     client = make_client(outcomes=[ChatForwardsRestrictedError(request=None)])
     make_session_fake(monkeypatch, client)
@@ -336,7 +331,6 @@ def test_forward_preview_requires_source_message_and_destination(argv, capsys):
 def test_forward_commit_refuses_a_message_edited_since_its_preview(
     config_env, monkeypatch, capsys, changed
 ):
-    # Telegram forwards the message as it is now; the owner approved it as it was.
     client = make_client()
     make_session_fake(monkeypatch, client)
     assert main(["forward", "@chan", "42", "@alice", "--preview", "--json"]) == 0
@@ -374,8 +368,6 @@ def test_forward_commit_refuses_a_message_deleted_since_its_preview(
 def test_forward_commit_retry_after_lost_answer_ignores_later_changes(
     config_env, monkeypatch, capsys, later
 ):
-    # The first forward may have arrived; a retry must ask Telegram with the
-    # same random_id rather than refuse and invite a second preview.
     preview = forward_preview(random_id=123)
     client = make_client(
         outcomes=[ConnectionError("lost"), RandomIdDuplicateError(request=None)]

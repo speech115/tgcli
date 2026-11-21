@@ -212,7 +212,6 @@ async def _poll_common(
     )
 
 
-# What Telegram says about a channel this account can no longer read.
 CHANNEL_LOST_ERRORS = (
     telethon_errors.ChannelPrivateError,
     telethon_errors.ChannelInvalidError,

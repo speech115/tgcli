@@ -91,8 +91,6 @@ def list_clones(source: str | None = None) -> dict:
         if loaded is None or not lookup.matches(loaded, source):
             continue
         entries.append(_entry(loaded, clone_id))
-    # An unreadable entry has no created_at at all (the CLI contract: every field
-    # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries}
 
@@ -274,8 +272,6 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
 
 
 def _supersede_if_asked(clone_id: str, account_alias: str, payload: dict) -> None:
-    # A preview from a build that did not record `supersedes` keeps the old
-    # unconditional replace.
     expected = payload.get("supersedes")
     replace = bool(payload.get("replace")) and (
         expected is None or _slot_identity(clone_id) == expected
@@ -319,11 +315,6 @@ def _load_for_commit(
             "re-run with --replace to start a fresh posts-only clone"
         )
     if clone_state.creation_marker is None:
-        # Always a secret suffix: the bare prefix is computable from public ids,
-        # so anyone could title a group with it and hand the account its
-        # ownership to be adopted. Saved before creation, so a crashed init
-        # still finds its own half-created peers; a --replace never re-adopts
-        # the previous init's.
         nonce = secrets.token_hex(3)
         clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}-{nonce}"
     state.save(clone_state)
@@ -407,8 +398,6 @@ async def _apply_ergonomics(
     peers = [destination]
     discussion_unresolved = False
     if clone_state.discussion_destination_peer_id is not None:
-        # CONTRACT §4: a genuine flood is exit 5 with retry_after, and a 500
-        # an error, never a quiet "muted: false" on a successful init.
         group, refusal = await unless_refused(
             tg.get_entity(types.PeerChannel(clone_state.discussion_destination_peer_id))
         )
@@ -420,8 +409,6 @@ async def _apply_ergonomics(
                 "warning: clone mute skipped for discussion peer "
                 f"{clone_state.discussion_destination_peer_id}: unresolved"
             )
-    # Muting the clone and filing it into the "Clone" folder change the
-    # account's own settings: audited before they leave, like every init write.
     safety.append_audit("clone-init-ergonomics", account_alias, {"clone_id": clone_id})
     applied = await ergonomics.apply(tg, peers)
     if discussion_unresolved:

@@ -31,7 +31,6 @@ from tgcli.config import load_config, resolve_account
 from tgcli.errors import ConfigError, TgcliError
 from tgcli.parser import build_parser
 
-# The server fixes these; a request that sets them would reach another session.
 RESERVED_FLAGS = frozenset({"--account", "--session-role"})
 
 
@@ -70,7 +69,6 @@ def handle(line: str, prefix: list[str], parser: argparse.ArgumentParser) -> dic
 def invoke(argv: list[str], parser: argparse.ArgumentParser, stdin: str = "") -> dict:
     """Run one `tg` invocation in this process and capture what it printed."""
     out, err = io.StringIO(), io.StringIO()
-    # stdin is the request pipe: a command that reads stdin gets the request's text.
     with (
         contextlib.redirect_stdout(out),
         contextlib.redirect_stderr(err),
@@ -132,13 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         help="session role to hold",
     )
     args = parser.parse_args(argv)
-    # Replies own the real stdout; whatever else a command prints is captured.
     replies = sys.stdout
     sys.stdout = sys.stderr
     try:
         return serve(args.account, args.session_role, sys.stdin, replies)
     except TgcliError as err:
-        # The parent reads stdout for the ready line: a failed start answers there.
         sys.stdout = replies
         output.emit_error(err, as_json=True)
         return err.exit_code

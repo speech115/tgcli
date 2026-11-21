@@ -1,4 +1,3 @@
-# tests/test_clone_attribution.py
 """Direct unit tests for clone author attribution."""
 
 import asyncio
@@ -16,8 +15,8 @@ def test_prefixed_shifts_entity_offsets_by_utf16_prefix():
         "текст", [entity], attribution.Author(text="Иван")
     )
     assert text == "Иван: \n\nтекст"
-    assert entities[0].offset == 8  # len("Иван: \n\n") in UTF-16 units
-    assert entities[0] is not entity  # original must not be mutated
+    assert entities[0].offset == 8
+    assert entities[0] is not entity
 
 
 def test_prefixed_mention_length_counts_utf16_units():
@@ -25,7 +24,7 @@ def test_prefixed_mention_length_counts_utf16_units():
         "hi", None, attribution.Author(text="😀 Ann", mention_user_id=7)
     )
     assert text == "😀 Ann: \n\nhi"
-    assert entities[0].length == 6  # surrogate pair counts as 2
+    assert entities[0].length == 6
 
 
 def test_author_of_uses_me_for_own_messages():

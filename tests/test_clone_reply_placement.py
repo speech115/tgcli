@@ -75,7 +75,6 @@ class Truth:
             if leg == "posts":
                 dest = self.dest_for("channel", post.id)
                 return None if dest is None else ("channel", dest)
-            # A comment quoting a channel post points at its discussion anchor.
             found = self.anchor_of(post)
             return None if found is None else ("group", found)
         if self.world.comment(reply.id) is not None:
@@ -125,8 +124,6 @@ def _check(truth: Truth, sync: dict) -> None:
     lost = 0
     for leg, chat, item, dest, comment in copies:
         label = f"{leg} {item.id} -> {item.reply}"
-        # Every message above its leg's cursor is supported, and the run has
-        # no limit: each one must reach the destination in this run.
         assert dest is not None and (chat, dest) in client.sent, (
             f"{label}: never sent to the destination {chat}"
         )
@@ -138,7 +135,6 @@ def _check(truth: Truth, sync: dict) -> None:
             thread = truth.thread(thread_post)
             thread_anchor = thread_post.anchor
 
-        # (c) Every id sent exists in the chat it points into.
         if target is not None:
             assert truth.exists(*target), (
                 f"(c) {label}: reply_to_msg_id={target[1]} is not a message of "
@@ -152,19 +148,15 @@ def _check(truth: Truth, sync: dict) -> None:
                 f"(c) {label}: top_msg_id={top} is not a destination group message"
             )
 
-        # (a) A post that replies to nothing is sent replying to nothing.
         if item.reply is None:
             assert target is None and top is None, (
                 f"(a) {label}: a non-reply sent with reply {target} top={top}"
             )
-        # A top-level comment (every comment replies; this one to its own
-        # thread's anchor) goes under that anchor alone, with no thread top.
         if comment is not None and comment.reply == Reply("group", thread_anchor):
             assert top is None and target in (None, thread), (
                 f"(a) {label}: top-level comment sent to {target} top={top}"
             )
 
-        # (a) Same chat and message as the parent, or a counted loss.
         if item.reply is not None:
             expected = truth.parent(item.reply, leg=leg)
             if expected is None or target != expected:
@@ -173,7 +165,6 @@ def _check(truth: Truth, sync: dict) -> None:
                     f"(a) {label}: reply sent to {target}, parent lives at {expected}"
                 )
 
-        # (b) A comment with a known thread stays under that thread's anchor.
         if thread is not None:
             assert target is not None and target[0] == "group", (
                 f"(b) {label}: comment left its thread {thread}"
@@ -194,10 +185,6 @@ def _check(truth: Truth, sync: dict) -> None:
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(world=clone_world.worlds())
-# The worlds the search shrank each past reply bug to, pinned so the lever
-# keeps catching them whatever the search happens to draw. #313: with window
-# 1 a later posts window walks parent post 2 as a group thread root, and
-# group message 2 anchors post 1.
 @example(
     world=World(
         posts=(
@@ -213,7 +200,6 @@ def _check(truth: Truth, sync: dict) -> None:
         window=1,
     )
 )
-# #315: post 7 replies to comment 2, which is already in the destination group.
 @example(
     world=World(
         posts=(
@@ -228,7 +214,6 @@ def _check(truth: Truth, sync: dict) -> None:
         window=1,
     )
 )
-# #321: comment 2 quotes channel post 2, which never existed; its thread is known.
 @example(
     world=World(
         posts=(Post(1, False, False, 1, True, False),),
@@ -254,7 +239,6 @@ def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
         sync = json.loads(capsys.readouterr().out)["sync"]
         final = state.load(seeded.clone_id)
         assert final is not None
-        # Clone state must record each copy where Telegram put it.
         assert final.id_map == {
             source: dest
             for (chat, source), dest in client.copies.items()
@@ -279,7 +263,6 @@ def test_a_resumed_sync_keeps_a_posts_reply_to_a_comment_not_copied_yet(
     world = World(
         posts=(
             Post(1, False, False, 1, True, False),
-            # Posted after comment 4, so its anchor comes later in the group.
             Post(3, False, False, 5, True, False, Reply("group", 4)),
         ),
         comments=(Comment(4, 1, False, Reply("group", 1)),),

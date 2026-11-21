@@ -30,9 +30,7 @@ class ResolveContext:
     source_group: object | None = None
     destination_group: object | None = None
     source_channel_id: int | None = None
-    # Source anchor (an auto-forward in the source group) -> its source post.
     anchors: dict[SourceCommentId, SourcePostId | None] = field(default_factory=dict)
-    # Destination post -> its anchor in the destination group (per run).
     anchor_cache: dict[DestPostId, DestCommentId | None] = field(default_factory=dict)
     peer_reachable: dict = field(default_factory=dict)
     peer_entities: dict = field(default_factory=dict)
@@ -47,8 +45,6 @@ def _quote_fields(classified: replies.Classification):
     )
 
 
-# A peer the account may not touch: the same answers Telegram gives to a probe
-# and to a send that carries the peer as a reply target.
 FOREIGN_SEND_ERRORS = (
     telethon_errors.ChannelPrivateError,
     telethon_errors.ChatAdminRequiredError,
@@ -99,15 +95,11 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
             )
         )
     except TRANSIENT_ERRORS:
-        # An RPCError subclass meaning "ask again later", not "no title": caching
-        # that miss degrades every later quote and hides the wait.
         raise
     except (ValueError, TypeError, telethon_errors.RPCError):
         history = None
     title = None
     for chat in getattr(history, "chats", None) or ():
-        # Match the plain channel id, never the -100-prefixed form: the source
-        # response can carry an unrelated chat whose id merely contains it.
         if getattr(chat, "id", None) == key[1]:
             title = getattr(chat, "title", None) or None
             break
@@ -131,8 +123,6 @@ async def _cross_leg_reply(
     assert classified.parent_id is not None
     reply_to_peer_id = None
     if isinstance(leg, DiscussionLeg):
-        # Discussion leg quotes a channel post: point at the destination's
-        # discussion anchor for that post (same walk as thread-root remap).
         destination_post_id = leg.other.dest_for_raw(classified.parent_id)
         if destination_post_id is None:
             return None
@@ -144,10 +134,6 @@ async def _cross_leg_reply(
         destination_comment_id = leg.other.dest_for_raw(classified.parent_id)
         if destination_comment_id is None:
             return None
-        # Posts leg quotes a group comment: the id lives in the destination
-        # group, so the reply must name it. A later run's first posts window
-        # runs before the comments leg, so the group comes from clone state;
-        # the post is copied once, and flattening here would be for good.
         if ctx.destination_group is None:
             peer_id = leg.clone_state.discussion_destination_peer_id
             if peer_id is None:
@@ -211,8 +197,6 @@ async def _place_thread(
 
     Folded from ``comments._remap`` so both legs share one resolution walk.
     """
-    # Only a comment has a thread root: a post's parent id names the channel,
-    # and the group's own message under that id may anchor an unrelated post.
     if leg.kind != "discussion":
         return plan
     if ctx.source_group is None or ctx.source_channel_id is None:
@@ -221,10 +205,6 @@ async def _place_thread(
     if not isinstance(header, types.MessageReplyHeader):
         return plan
     top = header.reply_to_top_id
-    # ``reply_to_top_id`` always names this group; ``reply_to_msg_id`` only when
-    # the header carries no other peer. Walking a foreign parent id here is
-    # The silent failure: the group has its own message under that
-    # id, and matching an anchor re-points the reply at an unrelated post.
     peer = header.reply_to_peer_id
     root = top
     if root is None and (peer is None or attribution.same_peer(peer, ctx.source_group)):
@@ -232,8 +212,6 @@ async def _place_thread(
     if root is None:
         return plan
     anchor_id = SourceCommentId(root)
-    # A resolved root is remembered in clone state, so later runs skip both
-    # anchor reads.
     found = leg.clone_state.anchor_dest_for(anchor_id)
     if found is None:
         post_id = await _source_post(ctx, anchor_id)
@@ -241,7 +219,6 @@ async def _place_thread(
             None if post_id is None else leg.clone_state.dest_for(post_id)
         )
         if destination_post_id is None:
-            # Fallback / foreign with a mapped discussion top: place under it.
             if (
                 plan.body_prefix is not None
                 and top is not None
@@ -267,8 +244,6 @@ async def _place_thread(
             quote_offset=header.quote_offset,
         )
     elif plan.reply_to is None:
-        # The parent is lost (fallback or flattened), but the thread is known:
-        # keep the comment under its post, and keep counting the lost reply.
         placed = replace(
             plan, reply_to=types.InputReplyToMessage(reply_to_msg_id=found)
         )
@@ -288,8 +263,6 @@ async def _unreachable_fallback(
     ctx: ResolveContext,
     entity=None,
 ) -> transport.TransportPlan:
-    # A resolved entity already carries a display name; only the peers we could
-    # not open need the title read off the enclosing history response.
     title = (
         None
         if entity is not None

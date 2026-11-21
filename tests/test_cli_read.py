@@ -146,8 +146,6 @@ def test_read_custom_emoji_offsets_index_the_raw_message_not_formatted_text(
 ):
     from telethon.tl.types import MessageEntityBold, MessageEntityCustomEmoji
 
-    # Entity offsets count UTF-16 units of the raw ``message`` field. Telethon's
-    # ``.text`` re-renders entities as markup, so slicing it would shift the glyph.
     message = ns(
         id=42,
         date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),

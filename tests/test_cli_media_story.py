@@ -258,7 +258,6 @@ async def test_story_download_writes_file_and_reports_codec(tmp_path):
         "codec": "h264",
     }
     assert (tmp_path / "s.mp4").read_bytes() == b"abc"
-    # The h264 alt document was downloaded, not the main document.
     assert fake.iter_download_calls[0].id == 10
 
 

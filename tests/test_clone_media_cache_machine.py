@@ -47,9 +47,9 @@ class Telegram:
     """Serves each message's current photo; can drop the connection."""
 
     def __init__(self):
-        self.media: dict[int, tuple[int, int]] = {}  # photo id -> (size, byte)
+        self.media: dict[int, tuple[int, int]] = {}
         self.fetches = 0
-        self.fail_after: int | None = None  # chunks served before the drop
+        self.fail_after: int | None = None
 
     def payload(self, photo_id: int) -> bytes:
         size, byte = self.media[photo_id]
@@ -93,15 +93,14 @@ class CacheMachine(RuleBasedStateMachine):
         self.cache = reupload.ensure_cache_dir(self.clone_state)
         self.tg = Telegram()
         self.next_photo = 10
-        self.current: dict[int, int] = {}  # message -> photo id
-        self.finished: dict[int, int] = {}  # message -> photo id it holds
+        self.current: dict[int, int] = {}
+        self.finished: dict[int, int] = {}
         for message_id in MESSAGES:
             self._replace(message_id, large=False)
 
     def _replace(self, message_id: int, *, large: bool) -> None:
         photo_id = self.next_photo
         self.next_photo += 1
-        # Sizes never repeat: the cache tells media apart by byte size.
         size = (2 * CHUNK_SIZE if large else 100) + photo_id
         self.tg.media[photo_id] = (size, photo_id % 251)
         self.current[message_id] = photo_id

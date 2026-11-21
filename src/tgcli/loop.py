@@ -23,7 +23,6 @@ def run[T](coro: Coroutine[Any, Any, T]) -> T:
     started: list[asyncio.Task] = []
 
     async def step() -> T:
-        # Inside run_coroutine_threadsafe there is always a current task.
         started.append(cast(asyncio.Task, asyncio.current_task()))
         return await coro
 
@@ -31,9 +30,6 @@ def run[T](coro: Coroutine[Any, Any, T]) -> T:
     try:
         return future.result()
     except BaseException:
-        # A deadline signal or a kill landed while waiting: the coroutine must
-        # not outlive the step that started it, so cancel it and, as
-        # asyncio.run would, wait until its cleanup has run.
         future.cancel()
         if started:
             asyncio.run_coroutine_threadsafe(asyncio.wait(started), _loop).result()

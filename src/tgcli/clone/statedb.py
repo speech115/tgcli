@@ -59,8 +59,6 @@ class MapTable(StrEnum):
     DISCUSSION_CAPTION_REST_MAP = "discussion_caption_rest_map"
 
 
-# One queued write: upsert ``source -> dest``, or delete ``source`` when
-# ``dest`` is None.
 Pending = tuple[MapTable, int, int | None]
 
 _SCHEMA_SQL = """
@@ -119,31 +117,21 @@ CREATE TABLE IF NOT EXISTS discussion_caption_rest_map (
 );
 """
 
-# Forward-only, one entry per schema version above 1. A clone database holds
-# work that cost real Telegram traffic to produce, so a schema addition
-# migrates the file in place; only a *newer* file than this build understands
-# is refused, because reading it would silently drop whatever it added.
 _MIGRATIONS: dict[int, tuple[str, ...]] = {
     2: (
         "ALTER TABLE meta ADD COLUMN destination_title TEXT",
         "ALTER TABLE meta ADD COLUMN destination_username TEXT",
     ),
-    # Source discussion anchor -> destination anchor. Not UNIQUE on dest: an
-    # album post's anchors all lead to the one destination thread.
     3: (
         "CREATE TABLE IF NOT EXISTS anchor_map "
         "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL)",
     ),
-    # Source message -> the message that carries the rest of its split
-    # caption, per leg, so the next run's tail guard knows it as the clone's.
     4: (
         "CREATE TABLE IF NOT EXISTS caption_rest_map "
         "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL UNIQUE)",
         "CREATE TABLE IF NOT EXISTS discussion_caption_rest_map "
         "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL UNIQUE)",
     ),
-    # Per leg, the batch or caption rest about to be sent, so a run that
-    # crashed between Telegram's send and the mapping save is adopted.
     5: ("ALTER TABLE meta ADD COLUMN send_intents TEXT",),
 }
 

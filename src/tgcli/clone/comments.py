@@ -59,24 +59,10 @@ async def sync_phase(
     leg = legs.discussion(clone_state)
 
     def degrade() -> None:
-        # Same refusal shape as attribution._resolve / roster.collect
-        # (1.2.8): a linked group that turned private after init must not
-        # crash a sync whose posts have already copied. Degrade to the
-        # Honest marker; never join the source on the user's
-        # behalf. Clearing discussion_cursor / discussion_id_map is
-        # required: state.load rejects comments != enabled with
-        # leftover phase-2 progress.
         clone_state.clear_discussion_progress()
         clone_state.comments = Comments.UNAVAILABLE
         state.save(clone_state)
 
-    # one shared ResolveContext spans every window of a sync run
-    # , and the discussion peers cannot change identity
-    # mid-run — later windows reuse the first window's entities instead of
-    # re-paying two GetChannels RPCs. Because that skips the per-window
-    # re-resolve, a group that turns private between windows now surfaces on
-    # the window's own reads — the iterator below carries the same degrade
-    # guard.
     source_group = getattr(resolve_ctx, "source_group", None)
     if source_group is None:
         source_group, refusal = await unless_refused(
@@ -122,30 +108,18 @@ async def sync_phase(
         except StopAsyncIteration:
             break
         except NOT_REFUSALS:
-            # Same: a flood, a 500 or a dead session stops the run, never
-            # degrades.
             raise
         except (ValueError, telethon_errors.RPCError):
-            # The window's own reads are where a mid-run privatized source
-            # surfaces once entities are cached. Only
-            # the source iterator gets the degrade guard: copy_batch failures
-            # below keep escaping exactly as before.
             degrade()
             return False
         if limited():
             return True
         if pace.exhausted():
-            # --max-runtime bounds this leg as it bounds the posts leg: stop
-            # normally, the cursor stays where the next run resumes.
             return False
         if isinstance(event, batching.ServiceSkip):
             counters["skipped_service"] += 1
             leg.cursor = event.message_id
         elif (posts := _anchor_posts(event.messages, source_channel.id)) is not None:
-            # stop before an anchor whose source post is newer than
-            # the posts cursor — but only while more posts may still arrive.
-            # Once the posts leg is exhausted, beyond-cursor anchors are
-            # orphans (deleted/never-seen) and must not stall the leg.
             if not posts_exhausted and any(
                 post_id > clone_state.cursor for post_id in posts.values()
             ):

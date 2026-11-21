@@ -8,7 +8,6 @@ import sqlite3
 from tgcli.archive import peers as peers_mod, store as store_mod
 from tgcli.errors import NotFoundError, PolicyError
 
-# FTS5 operators / wildcards — presence means pass-through raw MATCH.
 _RAW_MATCH = re.compile(
     r"""[*"]|\b(?:AND|OR|NOT|NEAR)\b|[()]""",
     re.IGNORECASE,

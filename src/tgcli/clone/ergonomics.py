@@ -8,7 +8,6 @@ from telethon.tl import functions, types
 
 from tgcli.output import note
 
-# Telegram's "muted forever" sentinel: the largest signed 32-bit timestamp.
 MUTE_FOREVER_UNTIL = 2**31 - 1
 
 FOLDER_TITLE = "Clone"
@@ -66,13 +65,11 @@ async def _mute_peer(tg, entity) -> bool:
         await tg(
             functions.account.UpdateNotifySettingsRequest(
                 peer=notify_peer,
-                # Telethon stubs type mute_until as datetime|None;
-                # MTProto wants a unix int.
                 settings=types.InputPeerNotifySettings(mute_until=MUTE_FOREVER_UNTIL),  # type: ignore[arg-type]
             )
         )
         return True
-    except Exception as exc:  # noqa: BLE001 — best-effort; never fail init
+    except Exception as exc:
         note(f"warning: clone mute failed for peer {getattr(entity, 'id', '?')}: {exc}")
         return False
 
@@ -176,7 +173,7 @@ async def _ensure_folder(tg, entities: list) -> str:
             )
         )
         return "added"
-    except Exception as exc:  # noqa: BLE001 — best-effort; never fail init
+    except Exception as exc:
         note(f"warning: clone folder unavailable: {exc}")
         return "unavailable"
 

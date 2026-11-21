@@ -45,7 +45,6 @@ class Client(TelegramClient):
     async def _on_login(self, user):
         if not self._no_updates:
             return await super()._on_login(user)
-        # Telethon's own login minus updates.GetState/GetDifference.
         self._mb_entity_cache.set_self_user(user.id, user.bot, user.access_hash)
         self._authorized = True
         return user
@@ -53,9 +52,6 @@ class Client(TelegramClient):
     async def _update_loop(self) -> None:
         if not self._no_updates:
             return await super()._update_loop()
-        # With pushes off, the queue still gets the updates that ride on RPC
-        # results (sends, deletes, read marks). Telethon would check them for
-        # gaps and fetch differences; nothing here reads them, so drop them.
         while True:
             await self._updates_queue.get()
 
@@ -70,8 +66,6 @@ class Client(TelegramClient):
         username, is_invite = utils.parse_username(ref)
         if not username or is_invite:
             return None
-        # Every concrete Telethon session implements this; the base types it
-        # as NotImplementedError.
         session: Any = self.session
         row = session.get_entity_rows_by_username(username)
         if not row:

@@ -117,10 +117,6 @@ async def author_of(tg, source, message, me, cache: dict) -> Author:
         signature = getattr(message, "post_author", None)
         if isinstance(signature, str) and signature:
             return Author(text=signature)
-        # An anonymous admin posting as the group ships neither `from_id` nor
-        # `post_author`; clients label it with the group's own title, so name
-        # the ambient chat rather than "id unknown" (issue #81). A broadcast
-        # source has no such chat and keeps the bare fallback.
         if not _names_itself(source):
             return _identify(None, getattr(message, "sender_id", None))
         entity = source

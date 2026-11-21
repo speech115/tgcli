@@ -13,9 +13,6 @@ import threading
 from tgcli import loop
 from tgcli.errors import CommandTimeoutError
 
-# The deadline is armed before preflight, so it must not preempt a command that
-# owns a graceful asyncio deadline around the network. Those arm later; this
-# margin keeps them first.
 GRACE = 1.0
 
 
@@ -69,23 +66,14 @@ def run(coro, timeout):
         done, _ = await asyncio.wait({task}, timeout=timeout)
         if done:
             return task.result()
-        # The command's own deadline (transcribe's wait_for) may still win
-        # inside the grace window and raise its detailed CommandTimeoutError;
-        # fall back to the generic TIMEOUT only once that window is over. The
-        # SIGALRM backstop is disarmed first so its `seconds + grace` firing
-        # cannot race this wait.
         signal.setitimer(signal.ITIMER_REAL, 0)
         done, _ = await asyncio.wait({task}, timeout=GRACE)
         if done:
             try:
                 return task.result()
             except (asyncio.CancelledError, TimeoutError):
-                # Past the deadline, a builtin TimeoutError (a socket timing
-                # out in the grace window) is the deadline too.
                 raise _Expired from None
         task.cancel()
-        # Let its `finally` blocks run before the next step does: asyncio.run
-        # waited for them, a held loop (tg-serve) would not.
         await asyncio.wait({task})
         raise _Expired
 

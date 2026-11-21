@@ -7,7 +7,6 @@ from typing import Any
 
 from tgcli.archive import sync_state as sync_state_mod
 
-# Shared SQL fragments so explore search joins stop duplicating COALESCE sprawl.
 IDENTITY_SELECT = """
                COALESCE(s.chat_ref, ss.chat_ref) AS chat_ref,
                COALESCE(s.title, ss.title) AS title,

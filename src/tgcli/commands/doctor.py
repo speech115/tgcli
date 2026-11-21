@@ -264,8 +264,6 @@ async def run(
         accounts = [resolve_account(config, alias)]
     else:
         accounts = list(config.accounts.values())
-    # Previews are account-agnostic, so the repair runs once for the whole
-    # invocation and every account report quotes the same number.
     allowed = _repair_allowed(readonly)
     repaired = _repair_preview_perms() if allowed else 0
     if repaired:

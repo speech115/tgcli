@@ -100,7 +100,6 @@ def load_config(path: Path | None = None) -> Config:
     path = path or default_config_path()
     if not path.exists():
         raise ConfigError(f"config not found: {path}")
-    # The api_hash is a secret; a config made by hand is usually 0644.
     restrict_file(path)
     raw = tomllib.loads(path.read_text())
     accounts: dict[str, Account] = {}

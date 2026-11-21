@@ -77,7 +77,6 @@ def test_resolve_slot_ignores_a_legacy_slot_of_a_different_kind(tmp_path, monkey
 
     assert canonical_id == state.clone_id(1, 2, "broadcast")
     assert state.load(canonical_id) is None
-    # The dialog's own legacy slot is untouched and still resolvable by it.
     assert state.path_for(legacy_id).exists()
 
 

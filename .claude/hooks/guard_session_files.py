@@ -16,7 +16,6 @@ SESSIONS_DIR = re.compile(r"/sessions(?:/|$)")
 SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|]|\$\(|`")
 HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=\S*")
-# Each wrapper with the options that take a separate value word.
 WRAPPERS: dict[str, frozenset[str]] = {
     "env": frozenset({"-u", "--unset", "-C", "--chdir"}),
     "exec": frozenset({"-a"}),
@@ -60,7 +59,7 @@ def _first_word(segment: str) -> str:
             continue
         elif wrapper is not None and word.startswith("-"):
             if word in WRAPPERS[wrapper] and words:
-                words.pop(0)  # the option's value
+                words.pop(0)
         else:
             return word
     return ""
@@ -84,8 +83,6 @@ def _runs_bare_python(line: str) -> bool:
     for segment in SEGMENT_SPLIT.split(line):
         if _is_bare_python(_first_word(segment)):
             return True
-        # A wrapper (`env -S'python3 …'`, `sudo -E python3`) can hide the
-        # interpreter inside an option; any bare python word after it counts.
         words = [w for w in segment.split() if not ENV_ASSIGNMENT.fullmatch(w)]
         if words and words[0].strip("({\"'") in WRAPPERS:
             if any(_is_bare_python(word) for word in _wrapped_words(segment)):

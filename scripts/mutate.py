@@ -50,7 +50,7 @@ class Mutant:
     line: int
     before: str
     after: str
-    source: str  # the whole file with this one change applied
+    source: str
 
 
 def changed_lines(base: str, paths: list[str]) -> dict[str, set[int]]:
@@ -70,7 +70,6 @@ def changed_lines(base: str, paths: list[str]) -> dict[str, set[int]]:
         elif path and path.endswith(".py") and (match := HUNK.match(row)):
             start, count = int(match[1]), int(match[2] or 1)
             lines.setdefault(path, set()).update(range(start, start + count))
-    # git diff never shows an untracked file: every line of one is new.
     untracked = subprocess.run(
         ["git", "ls-files", "-z", "--others", "--exclude-standard", "--", *paths],
         cwd=ROOT,
@@ -98,7 +97,6 @@ def mutants(path: str, source: str, lines: set[int]) -> list[Mutant]:
             continue
         for flipped in flips(node):
             row = rows[node.lineno - 1]
-            # AST columns are UTF-8 byte offsets; slice bytes, not characters.
             raw = row.encode()
             assert node.end_col_offset is not None
             before = raw[node.col_offset : node.end_col_offset].decode()
@@ -126,8 +124,6 @@ def flips(node: ast.Compare | ast.BoolOp) -> list[ast.expr]:
 
 
 def run_suite(tree: Path, timeout: float) -> int:
-    # An absolute PYTHONPATH, or the editable install shadows the copy and
-    # every mutant "survives".
     env = {k: v for k, v in os.environ.items() if not k.startswith("TGCLI_")}
     env.update(PYTHONPATH=str(tree / "src"), HOME=str(tree / "home"))
     try:
@@ -140,7 +136,7 @@ def run_suite(tree: Path, timeout: float) -> int:
             timeout=timeout,
         ).returncode
     except subprocess.TimeoutExpired:
-        return -1  # a hang is a failure too
+        return -1
 
 
 def killed(tree: Path, mutant: Mutant, timeout: float) -> bool:

@@ -204,7 +204,6 @@ def test_backfill_channel_after_add_stores_universal_shape(
         _msg(mid=10, text="ten", peer=None),
         _msg(mid=9, text="nine"),
     ]
-    # peer_id on Message is unused by message_to_dict; entity comes from resolve.
     client = archive_client(entities={"@news": channel}, messages=messages)
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -214,7 +213,6 @@ def test_backfill_channel_after_add_stores_universal_shape(
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 2
     assert data["remaining"] is False
-    # Resume stores nothing new when already complete for this window.
     assert main(["archive", "backfill", "@news", "--limit", "10", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 0

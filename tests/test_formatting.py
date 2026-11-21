@@ -41,8 +41,6 @@ def test_unknown_format_raises():
 
 @pytest.mark.parametrize("text", ["if a<b then c", "x<y", "tail <b>bold"])
 def test_html_unterminated_markup_is_blocked(text):
-    # The stdlib parser leaves an unfinished tag in rawdata and drops it, which
-    # used to truncate the message *after* the operator approved the preview.
     with pytest.raises(PolicyError) as excinfo:
         formatting.render(text, "html")
     assert excinfo.value.exit_code == 2
@@ -53,8 +51,6 @@ def test_html_unterminated_markup_is_blocked(text):
     ["List<int> is generic", "a <marquee>b</marquee> c", "x </closed> y"],
 )
 def test_html_unsupported_tag_is_blocked(text):
-    # An unsupported tag parses as real markup and silently disappears from the
-    # sent body; it must be an error instead of a deletion.
     with pytest.raises(PolicyError) as excinfo:
         formatting.render(text, "html")
     assert excinfo.value.exit_code == 2

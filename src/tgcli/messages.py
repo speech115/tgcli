@@ -59,7 +59,6 @@ def media_kind(message) -> str | None:
     return None
 
 
-# Every value media_kind returns.
 MEDIA_KINDS = ("photo", "video", "video_note", "audio", "voice", "document")
 
 
@@ -99,7 +98,6 @@ def _reactions(message) -> list[dict]:
 
 
 def _custom_emoji(message) -> list[dict]:
-    # Entities index into the raw text (.message), not the formatted .text.
     return custom_emoji(
         getattr(message, "message", None) or "",
         getattr(message, "entities", None),

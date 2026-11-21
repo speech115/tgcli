@@ -36,8 +36,6 @@ def test_legacy_consume_preview_is_not_a_production_seam():
     ],
 )
 def test_commit_refuses_every_preview_flag(argv, monkeypatch, capsys):
-    # The preview already fixed these choices; a flag beside --commit would be
-    # silently ignored, so it is a usage error before any gate or I/O.
     monkeypatch.setenv("TGCLI_NO_SEND", "1")
     monkeypatch.setenv("TGCLI_READONLY", "1")
 

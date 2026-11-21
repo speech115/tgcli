@@ -20,7 +20,7 @@ def mutate(monkeypatch) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, name, module)  # dataclasses look it up
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -72,7 +72,6 @@ def test_untracked_python_file_counts_as_fully_added(mutate, repo, monkeypatch):
 def test_limit_that_skips_mutants_does_not_exit_zero(mutate, repo, monkeypatch, capsys):
     (repo / "src" / "old.py").write_text("x = 1\ny = x == 1 or x != 2\n")
     monkeypatch.setattr(mutate, "ROOT", repo)
-    # The unmutated suite passes; every mutant is killed.
     calls = []
 
     def fake_suite(tree, timeout):
