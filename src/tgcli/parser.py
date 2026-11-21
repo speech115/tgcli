@@ -309,6 +309,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("--preview", action="store_true")
     p_delete.add_argument("--commit", metavar="PREVIEW_ID")
 
+    p_forward = sub.add_parser(
+        "forward",
+        help="Preview and commit forwarding a message to another chat",
+        parents=[global_flags],
+    )
+    p_forward.add_argument("from_chat", nargs="?", help="source chat for --preview")
+    p_forward.add_argument(
+        "message_id", nargs="?", type=int, help="id of the message to forward"
+    )
+    p_forward.add_argument("chat", nargs="?", help="destination chat for --preview")
+    p_forward.add_argument("--preview", action="store_true")
+    p_forward.add_argument("--commit", metavar="PREVIEW_ID")
+    p_forward.add_argument(
+        "--copy",
+        action="store_true",
+        help='send as a new message, without the "Forwarded from" header',
+    )
+    p_forward.add_argument("--silent", action="store_true")
+
     p_run = sub.add_parser(
         "run",
         help="Run a Python script with the authenticated client",

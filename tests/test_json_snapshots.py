@@ -102,6 +102,7 @@ CASES = [
     ("info_user", ["info", "@alice"]),
     ("resolve", ["resolve", "@alice"]),
     ("send_preview", ["send", "@alice", "hello", "--preview"]),
+    ("forward_preview", ["forward", "@chan", "42", "@alice", "--preview"]),
     ("usage_error", ["read"]),
 ]
 

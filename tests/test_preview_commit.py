@@ -13,6 +13,7 @@ def test_preview_commit_registry_covers_every_handshake():
         "send": "send",
         "edit": "edit",
         "delete": "delete",
+        "forward": "forward",
         "clone init": "clone-init",
     }
 
@@ -27,6 +28,9 @@ def test_legacy_consume_preview_is_not_a_production_seam():
         ["send", "--commit", "p_x", "--format", "html"],
         ["send", "--commit", "p_x", "--format", "md"],
         ["edit", "--commit", "p_x", "--format", "html"],
+        ["forward", "--commit", "p_x", "--copy"],
+        ["forward", "--commit", "p_x", "--silent"],
+        ["forward", "--commit", "p_x", "@chan", "42", "@alice"],
         ["clone", "init", "@source", "--commit", "p_x", "--replace"],
         ["clone", "init", "@source", "--commit", "p_x", "--no-comments"],
     ],

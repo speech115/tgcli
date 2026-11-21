@@ -227,6 +227,7 @@ COMMANDS: dict[str, Command] = {
     "send": _HANDSHAKE,
     "edit": _HANDSHAKE,
     "delete": _HANDSHAKE,
+    "forward": _HANDSHAKE,
     "run": Command(
         kind="write",
         needs="network",
