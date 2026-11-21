@@ -333,11 +333,15 @@ async def prepare_forward(
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     random_id = payload["random_id"]
     source = await _input_peer(tg, payload["from_chat"])
-    message = await tg.get_messages(source, ids=payload["message_id"])
-    if message is None:
-        raise NotFoundError(f"message not found: {payload['message_id']}")
-    if content_fingerprint(message) != payload.get("content_sha256"):
-        raise PolicyError("message changed since its preview; make a new preview")
+    # A retry after an unknown outcome skips the content check: the stored
+    # random_id lets Telegram answer already_sent instead of a second forward.
+    if not safety.was_attempted(preview_id):
+        message = await tg.get_messages(source, ids=payload["message_id"])
+        if message is None:
+            raise NotFoundError(f"message not found: {payload['message_id']}")
+        if content_fingerprint(message) != payload.get("content_sha256"):
+            raise PolicyError("message changed since its preview; make a new preview")
+    safety.mark_attempted(preview_id)
     request = functions.messages.ForwardMessagesRequest(
         from_peer=source,
         id=[payload["message_id"]],

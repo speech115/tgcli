@@ -69,7 +69,8 @@ sends exactly that; any other flag beside `--commit` is a usage error.
   never make a second preview. A send or forward retry carries the same
   `random_id`, so it cannot duplicate.
 - A forward commit exits 2 if the message was edited since its preview:
-  preview again and show the new content.
+  preview again and show the new content. A retry after exit 1 skips this
+  check and only re-asks Telegram, so it never forwards twice.
 - Exit 0 with `"already_sent": true` means the earlier attempt was delivered:
   stop.
 - Exit 2 "preview commit already in progress": an earlier commit is still

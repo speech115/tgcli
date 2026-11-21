@@ -125,6 +125,7 @@ def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
 def _expire_pending(pending: Path, path: Path) -> None:
     """Rename an expired preview back to `.json` the moment expiry is seen,
     so it never sits as `.pending`, which reads as a commit in progress."""
+    pending.with_suffix(".attempted").unlink(missing_ok=True)
     try:
         pending.replace(path)
         os.chmod(path, 0o600)
@@ -233,10 +234,24 @@ def release_commit_locks() -> None:
         _release_commit_lock(preview_id)
 
 
+def _attempt_marker(preview_id: str) -> Path:
+    return previews_dir() / f"{preview_id}.attempted"
+
+
+def mark_attempted(preview_id: str) -> None:
+    """Record that a commit's request may have reached Telegram."""
+    atomic.replace_text(_attempt_marker(preview_id), "")
+
+
+def was_attempted(preview_id: str) -> bool:
+    return _attempt_marker(preview_id).exists()
+
+
 def finish_commit(preview_id: str) -> None:
     if not preview_id.startswith("p_") or "/" in preview_id:
         raise PolicyError("preview is already used or does not exist")
     pending = previews_dir() / f"{preview_id}.pending"
+    pending.with_suffix(".attempted").unlink(missing_ok=True)
     try:
         used = pending.with_suffix(".used")
         pending.replace(used)

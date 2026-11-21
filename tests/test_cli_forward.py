@@ -348,6 +348,8 @@ def test_forward_commit_refuses_a_message_edited_since_its_preview(
     error = json.loads(capsys.readouterr().out)["error"]
     assert error["code"] == "BLOCKED"
     assert "changed since its preview" in error["message"]
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 2
+    capsys.readouterr()
     assert client.forwards == []
 
 
@@ -362,3 +364,28 @@ def test_forward_commit_refuses_a_message_deleted_since_its_preview(
 
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
     assert client.forwards == []
+
+
+@pytest.mark.parametrize(
+    "later",
+    [[make_report(text="Q4 report", edit_date=WHEN + dt.timedelta(minutes=1))], []],
+    ids=["edited", "deleted"],
+)
+def test_forward_commit_retry_after_lost_answer_ignores_later_changes(
+    config_env, monkeypatch, capsys, later
+):
+    # The first forward may have arrived; a retry must ask Telegram with the
+    # same random_id rather than refuse and invite a second preview.
+    preview = forward_preview(random_id=123)
+    client = make_client(
+        outcomes=[ConnectionError("lost"), RandomIdDuplicateError(request=None)]
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 1
+    capsys.readouterr()
+    client._messages[:] = later
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["already_sent"] is True
+    assert [request.random_id for request in client.forwards] == [[123], [123]]
