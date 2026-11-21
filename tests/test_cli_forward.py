@@ -8,6 +8,7 @@ from telethon.tl import functions, types
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
 from tgcli.cli import main
+from tgcli.commands import send as send_cmd
 
 SAMPLE = """
 default_account = "main"
@@ -55,16 +56,16 @@ class ForwardClient(FakeClient):
         )
 
 
-def make_client(*, protected=False, outcomes=()):
-    report = ns(
-        id=42,
-        date=WHEN,
-        sender_id=1,
-        sender=None,
-        text="Q3 report",
-        media=ns(),
-        document=ns(),
-        file=ns(
+def make_report(**overrides):
+    fields = {
+        "id": 42,
+        "date": WHEN,
+        "sender_id": 1,
+        "sender": None,
+        "text": "Q3 report",
+        "media": ns(),
+        "document": ns(id=900),
+        "file": ns(
             name="report.pdf",
             mime_type="application/pdf",
             size=1234,
@@ -72,10 +73,16 @@ def make_client(*, protected=False, outcomes=()):
             width=None,
             height=None,
         ),
-        reply_to_msg_id=None,
-    )
+        "reply_to_msg_id": None,
+        "edit_date": None,
+    }
+    fields.update(overrides)
+    return ns(**fields)
+
+
+def make_client(*, protected=False, outcomes=(), messages=None):
     return ForwardClient(
-        messages=[report],
+        messages=[make_report()] if messages is None else messages,
         entities={
             "@chan": ns(id=5, title="Chan", noforwards=protected),
             "@alice": ns(id=7, first_name="Alice"),
@@ -99,6 +106,7 @@ def forward_preview(*, copy=False, silent=False, random_id=123, chat="@alice"):
             "text": "Q3 report",
             "media_kind": "document",
             "media_info": None,
+            "content_sha256": send_cmd.content_fingerprint(make_report()),
         }
     )
 
@@ -315,3 +323,69 @@ def test_forward_commit_refused_by_telegram_is_one_error_envelope(
 def test_forward_preview_requires_source_message_and_destination(argv, capsys):
     assert main(argv) == 1
     assert "forward requires" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"text": "Q4 report", "edit_date": WHEN + dt.timedelta(minutes=1)},
+        {"document": ns(id=901), "edit_date": WHEN + dt.timedelta(minutes=1)},
+    ],
+    ids=["text", "media"],
+)
+def test_forward_commit_refuses_a_message_edited_since_its_preview(
+    config_env, monkeypatch, capsys, changed
+):
+    # Telegram forwards the message as it is now; the owner approved it as it was.
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+    assert main(["forward", "@chan", "42", "@alice", "--preview", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    client._messages[0] = make_report(**changed)
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "changed since its preview" in error["message"]
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 2
+    capsys.readouterr()
+    assert client.forwards == []
+
+
+def test_forward_commit_refuses_a_message_deleted_since_its_preview(
+    config_env, monkeypatch, capsys
+):
+    preview = forward_preview()
+    client = make_client(messages=[])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 4
+
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+    assert client.forwards == []
+
+
+@pytest.mark.parametrize(
+    "later",
+    [[make_report(text="Q4 report", edit_date=WHEN + dt.timedelta(minutes=1))], []],
+    ids=["edited", "deleted"],
+)
+def test_forward_commit_retry_after_lost_answer_ignores_later_changes(
+    config_env, monkeypatch, capsys, later
+):
+    # The first forward may have arrived; a retry must ask Telegram with the
+    # same random_id rather than refuse and invite a second preview.
+    preview = forward_preview(random_id=123)
+    client = make_client(
+        outcomes=[ConnectionError("lost"), RandomIdDuplicateError(request=None)]
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 1
+    capsys.readouterr()
+    client._messages[:] = later
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["already_sent"] is True
+    assert [request.random_id for request in client.forwards] == [[123], [123]]
