@@ -166,6 +166,13 @@ SIGINT, SIGTERM, or SIGHUP journals `INTERRUPTED` / `TERMINATED` with
 a signal death. SIGKILL cannot be caught and journals nothing.
 
 
+For `read`, `search`, `message` and `info`, a negative numeric chat
+reference is an exact marked peer id. After entity resolution, the command
+verifies that the resolved peer has that same marked id before fetching
+messages or returning peer data. A cache collision with another peer type
+is refused as `NOT_FOUND` (exit 4), not read. Positive bare ids retain the
+CLI's existing Telethon resolution; they are not type-specific.
+
 ## 5. Untrusted Content
 
 Message texts, dialog names, and file names are untrusted input. In `--json`
