@@ -26,8 +26,9 @@ DIRECTIVE = re.compile(
     r"|pragma:\s*no cover"
     r"|pyright:\s*ignore(\[[\w\-, ]+\])?)"
 )
-TEXT_SUFFIXES = {".sh", ".toml", ".yml", ".yaml"}
-TEXT_COMMENT = re.compile(r"(^|\s)#(\s|$)")
+LANGUAGES = {".sh": "shell", ".toml": "toml", ".yml": "yaml", ".yaml": "yaml"}
+SHELL_WORD_BREAK = set(" \t;&|()")
+YAML_SCALAR_START = set(":-[{,?")
 
 
 def _tracked() -> list[str]:
@@ -53,21 +54,80 @@ def _python_comments(source: str) -> list[tuple[int, str]]:
     return found
 
 
-def _text_comments(source: str) -> list[tuple[int, str]]:
-    return [
-        (line, text.strip())
-        for line, text in enumerate(source.splitlines(), 1)
-        if TEXT_COMMENT.search(text) and not _is_shebang(line, text)
-    ]
+def _opens_quote(language: str, line: str, index: int) -> bool:
+    if language != "yaml":
+        return True
+    before = line[:index].rstrip()
+    return not before or before[-1] in YAML_SCALAR_START
+
+
+def _starts_comment(language: str, line: str, index: int) -> bool:
+    if language == "toml" or index == 0:
+        return True
+    if language == "shell":
+        return line[index - 1] in SHELL_WORD_BREAK
+    return line[index - 1] in " \t"
+
+
+def _text_comments(source: str, language: str) -> list[tuple[int, str]]:
+    found = []
+    quote = ""
+    for number, line in enumerate(source.splitlines(), 1):
+        if _is_shebang(number, line):
+            continue
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if quote:
+                if char == "\\" and quote in ('"', '"""'):
+                    index += 2
+                    continue
+                if line.startswith(quote, index):
+                    index += len(quote)
+                    if (
+                        quote == "'"
+                        and language == "yaml"
+                        and line[index : index + 1] == "'"
+                    ):
+                        index += 1
+                        continue
+                    quote = ""
+                    continue
+                index += 1
+                continue
+            if char == "\\" and language == "shell":
+                index += 2
+                continue
+            if char in "\"'" and _opens_quote(language, line, index):
+                triple = char * 3
+                quote = (
+                    triple
+                    if language == "toml" and line.startswith(triple, index)
+                    else char
+                )
+                index += len(quote)
+                continue
+            if char == "#" and _starts_comment(language, line, index):
+                found.append((number, line[index:].strip()))
+                break
+            index += 1
+    return found
+
+
+def _language(relative: str) -> str | None:
+    if relative.startswith(".githooks/"):
+        return "shell"
+    return LANGUAGES.get(Path(relative).suffix)
 
 
 def comments(relative: str) -> list[tuple[int, str]] | None:
     path = ROOT / relative
     if path.suffix == ".py":
         return _python_comments(path.read_text())
-    if path.suffix in TEXT_SUFFIXES or relative.startswith(".githooks/"):
-        return _text_comments(path.read_text())
-    return None
+    language = _language(relative)
+    if language is None:
+        return None
+    return _text_comments(path.read_text(), language)
 
 
 def census() -> dict[str, list[tuple[int, str]]]:

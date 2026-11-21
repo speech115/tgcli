@@ -87,3 +87,42 @@ def test_baseline_only_ratchets_down(repo):
     write({"a.py": "# one\n# two\n"}, {"a.py": 1})
     assert module.main(["--update"]) == 1
     assert json.loads(module.BASELINE.read_text()) == {"a.py": 1}
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("a.toml", 'name = "release # 123"\n'),
+        ("a.toml", "name = 'release # 123'\n"),
+        ("a.toml", 'doc = """\nrelease # 123\n"""\n'),
+        ("a.toml", 'name = "say \\" # still a string"\n'),
+        ("a.sh", 'echo "release # 123"\n'),
+        ("a.sh", "echo 'release # 123'\n"),
+        ("a.sh", "echo $# ${#name} a#b \\# x\n"),
+        ("a.yml", 'name: "release # 123"\n'),
+        ("a.yml", "name: 'it''s # 123'\n"),
+        ("a.yml", "name: release#123\n"),
+    ],
+)
+def test_a_hash_inside_a_value_is_not_a_comment(repo, name, text):
+    module, write = repo
+    write({name: text}, {})
+    assert module.main([]) == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("a.toml", "#comment\n"),
+        ("a.toml", "key = 1#comment\n"),
+        ("a.sh", "#comment\n"),
+        ("a.sh", "echo hi;#comment\n"),
+        ("a.yml", "#comment\n"),
+        ("a.yml", "key: value #comment\n"),
+        ("a.yml", "key: it's #comment\n"),
+    ],
+)
+def test_a_comment_needs_no_space_after_the_hash(repo, name, text):
+    module, write = repo
+    write({name: text}, {})
+    assert module.main([]) == 1
