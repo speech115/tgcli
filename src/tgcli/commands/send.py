@@ -2,6 +2,7 @@
 forwards of existing ones."""
 
 import hashlib
+import json
 import mimetypes
 import tempfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from telethon.tl import functions, types
 
 from tgcli import chatref, confirm, formatting, safety
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.messages import message_to_dict, sanitize_plain_text
+from tgcli.messages import body_text, message_to_dict, sanitize_plain_text
 
 
 def _target_to_dict(entity) -> dict:
@@ -268,6 +269,22 @@ def to_rows(data: dict) -> list[tuple]:
     return [(data["preview_id"], data["message_id"])]
 
 
+def content_fingerprint(message) -> str:
+    """What a forward would carry: its text, edit stamp and media identity."""
+    media = getattr(message, "media", None)
+    edit_date = getattr(message, "edit_date", None)
+    media_id = getattr(getattr(message, "photo", None), "id", None) or getattr(
+        getattr(message, "document", None), "id", None
+    )
+    parts = [
+        body_text(message),
+        edit_date.isoformat() if edit_date else None,
+        type(media).__name__ if media else None,
+        media_id,
+    ]
+    return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+
+
 async def prepare_forward(
     tg, from_chat: str, message_id: int, chat: str, *, copy: bool, silent: bool
 ) -> dict:
@@ -295,6 +312,7 @@ async def prepare_forward(
             "text": shown["text"],
             "media_kind": shown["media_kind"],
             "media_info": shown["media_info"],
+            "content_sha256": content_fingerprint(message),
         }
     )
     keys = (
@@ -314,8 +332,14 @@ async def prepare_forward(
 
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     random_id = payload["random_id"]
+    source = await _input_peer(tg, payload["from_chat"])
+    message = await tg.get_messages(source, ids=payload["message_id"])
+    if message is None:
+        raise NotFoundError(f"message not found: {payload['message_id']}")
+    if content_fingerprint(message) != payload.get("content_sha256"):
+        raise PolicyError("message changed since its preview; make a new preview")
     request = functions.messages.ForwardMessagesRequest(
-        from_peer=await _input_peer(tg, payload["from_chat"]),
+        from_peer=source,
         id=[payload["message_id"]],
         to_peer=await _input_peer(tg, payload["chat"]),
         random_id=[random_id],

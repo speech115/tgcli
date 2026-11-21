@@ -68,6 +68,8 @@ sends exactly that; any other flag beside `--commit` is a usage error.
 - Make one preview. If the commit exits 1, rerun the same `--commit ID`;
   never make a second preview. A send or forward retry carries the same
   `random_id`, so it cannot duplicate.
+- A forward commit exits 2 if the message was edited since its preview:
+  preview again and show the new content.
 - Exit 0 with `"already_sent": true` means the earlier attempt was delivered:
   stop.
 - Exit 2 "preview commit already in progress": an earlier commit is still
