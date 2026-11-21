@@ -31,6 +31,9 @@ command is in `tg COMMAND --help`; this page is what the help does not say.
   with exit 2 before any request.
 - Account: `--account` > `TGCLI_ACCOUNT` > the config default.
 - Chats are `@username`, a `t.me/` link, or a numeric id.
+- For `read`, `search`, `message` and `info`, use the exact negative
+  dialog id from `tg dialogs` for a group/channel. A different peer resolved
+  from the cache is refused with `NOT_FOUND` (exit 4), never read.
 
 ## Commands
 
