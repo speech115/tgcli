@@ -27,13 +27,17 @@ Paste one line into your AI agent. You never open a terminal.
 **По-русски**
 
 ```text
-Установи tgcli для Telegram по инструкции https://github.com/speech115/tgcli/blob/main/INSTALL_FOR_AGENTS.md и подключи мой аккаунт
+Установи tgcli для Telegram по инструкции
+https://github.com/speech115/tgcli/blob/main/INSTALL_FOR_AGENTS.md
+и подключи мой аккаунт
 ```
 
 **In English**
 
 ```text
-Install tgcli for Telegram by following https://github.com/speech115/tgcli/blob/main/INSTALL_FOR_AGENTS.md and connect my account
+Install tgcli for Telegram by following
+https://github.com/speech115/tgcli/blob/main/INSTALL_FOR_AGENTS.md
+and connect my account
 ```
 
 ### What happens next
