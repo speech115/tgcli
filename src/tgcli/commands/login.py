@@ -189,10 +189,17 @@ async def _finish_authorized(
     me = await client.get_me()
     await client.disconnect()
     _audit_login(alias, method=method, outcome="authorized", phone=phone, role=role)
-    backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
     if is_new and role is None:
-        _append_config_block(default_config_path(), alias, api_id, api_hash)
+        backup = login_state.promote(
+            login_id,
+            dest,
+            keep_backup=True,
+            then=lambda: _append_config_block(
+                default_config_path(), alias, api_id, api_hash
+            ),
+        )
     else:
+        backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
         _discard_if_account_removed(alias, dest, backup, method=method, role=role)
     result = {
         "alias": alias,

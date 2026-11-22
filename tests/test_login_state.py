@@ -96,6 +96,40 @@ def test_promote_discards_phone_sidecar(state):
     assert not (state / "logins" / f"{login_id}.phone").exists()
 
 
+@pytest.mark.parametrize("before", [None, b"other-login"])
+def test_promote_then_runs_under_the_lock_and_rolls_back(state, before):
+    """Two new-alias logins: the config write and its rollback must not let
+    another promote of the same file in between, or the rollback deletes the
+    session a login that already finished just installed."""
+    from tgcli.errors import ConfigError
+    from tgcli.session import session_file_lock
+
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
+    login_id = record["login_id"]
+    login_state.staged_session_path(login_id).write_bytes(b"new")
+    dest = state / "sessions" / "main.session"
+    dest.parent.mkdir()
+    if before is not None:
+        dest.write_bytes(before)
+
+    def config_refuses():
+        with pytest.raises(ConfigError, match="busy"):
+            with session_file_lock(dest):
+                pass
+        raise ConfigError("alias set up meanwhile")
+
+    with pytest.raises(ConfigError, match="meanwhile"):
+        login_state.promote(login_id, dest, keep_backup=True, then=config_refuses)
+
+    if before is None:
+        assert not dest.exists()
+    else:
+        assert dest.read_bytes() == before
+    assert not Path(str(dest) + ".bak").exists()
+
+
 def test_load_attempt_rejects_a_naive_expiry(tmp_path, monkeypatch):
     """Same class as the store fix: a naive stamp must not raise TypeError."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
