@@ -195,10 +195,8 @@ async def _poll_common(
                 if isinstance(result, Difference)
                 else result.intermediate_state
             )
-            pts = int(common_state.pts)  # type: ignore[union-attr]
-            qts = int(common_state.qts)  # type: ignore[union-attr]
-            date = _unix(common_state.date)  # type: ignore[union-attr]
-            seq = int(common_state.seq)  # type: ignore[union-attr]
+            updated = _from_state(common_state)
+            pts, qts, date, seq = updated.pts, updated.qts, updated.date, updated.seq
             if isinstance(result, Difference):
                 break
             continue

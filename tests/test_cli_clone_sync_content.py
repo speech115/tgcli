@@ -14,7 +14,6 @@ from tests.fakes.clone import (
     poll_media,
     seed_clone,
 )
-from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
 

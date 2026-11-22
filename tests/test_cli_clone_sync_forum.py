@@ -16,7 +16,6 @@ from tests.fakes.clone import (
     seed_clone,
     topic_create,
 )
-from tests.fakes.clone_env import config_env as config_env
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.clone import state, topics

@@ -9,7 +9,6 @@ from telethon.tl import functions
 
 from tests.conftest import make_session_fake
 from tests.fakes.clone import CloneSyncClient, message, seed_clone
-from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import state
 

@@ -16,6 +16,7 @@ import threading
 import time
 import traceback
 from contextlib import contextmanager
+from typing import NoReturn
 
 from tgcli import (
     deadline,
@@ -349,6 +350,12 @@ def main(
     return exit_code
 
 
+def _die_by_signal(signum: int) -> NoReturn:
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+    sys.exit(128 + signum)
+
+
 def entrypoint() -> None:
     try:
         exit_code = main()
@@ -356,7 +363,5 @@ def entrypoint() -> None:
         _silence_stdout()
         exit_code = 0
     except _TerminationSignal as err:
-        signal.signal(err.signum, signal.SIG_DFL)
-        os.kill(os.getpid(), err.signum)
-        exit_code = 128 + err.signum
+        _die_by_signal(err.signum)
     sys.exit(exit_code)

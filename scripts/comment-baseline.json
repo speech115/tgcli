@@ -1,5 +1,5 @@
 {
-  ".coderabbit.yaml": 5,
-  ".github/workflows/ci.yml": 26,
-  "pyproject.toml": 22
+  ".coderabbit.yaml": 1,
+  ".github/workflows/ci.yml": 7,
+  "pyproject.toml": 5
 }

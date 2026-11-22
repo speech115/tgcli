@@ -26,7 +26,6 @@ from telethon.tl import types
 
 from tests.conftest import make_session_fake
 from tests.fakes import clone_world
-from tests.fakes.clone_env import config_env as config_env
 from tests.fakes.clone_world import Comment, Post, Reply, World
 from tgcli.cli import main
 from tgcli.clone import legs, state

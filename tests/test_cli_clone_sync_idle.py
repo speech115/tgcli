@@ -17,7 +17,6 @@ from tests.fakes.clone import (
     seed_clone,
     seed_comments_clone,
 )
-from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
 from tgcli.clone import roster, state
 

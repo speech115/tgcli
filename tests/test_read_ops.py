@@ -22,7 +22,8 @@ CLI_INVOCATIONS = {
 }
 
 OPERATION_NAMES = frozenset(
-    cls.__dataclass_fields__["name"].default for cls in get_args(read_ops.ReadOperation)
+    cls.__dataclass_fields__["name"].default
+    for cls in get_args(read_ops.ReadOperation.__value__)
 )
 
 
