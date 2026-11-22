@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from telethon.tl import functions, types
 
 from tgcli.output import note
+from tgcli.tg_errors import NOT_REFUSALS
 
 MUTE_FOREVER_UNTIL = 2**31 - 1
 
@@ -69,6 +70,8 @@ async def _mute_peer(tg, entity) -> bool:
             )
         )
         return True
+    except NOT_REFUSALS:
+        raise
     except Exception as exc:
         note(f"warning: clone mute failed for peer {getattr(entity, 'id', '?')}: {exc}")
         return False
@@ -173,6 +176,8 @@ async def _ensure_folder(tg, entities: list) -> str:
             )
         )
         return "added"
+    except NOT_REFUSALS:
+        raise
     except Exception as exc:
         note(f"warning: clone folder unavailable: {exc}")
         return "unavailable"

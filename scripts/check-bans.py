@@ -9,6 +9,9 @@
 - Chat references resolve through ``tgcli.chatref.resolve`` or
   ``tgcli.chatref.resolve_input``, never bare ``chatref.parse(...)``: raw
   parsing skips marked peer-id verification and preview peer pinning.
+- Async ``except Exception`` handlers that swallow errors must re-raise
+  ``tg_errors.RUN_ABORTING_ERRORS`` or ``tg_errors.NOT_REFUSALS`` first so
+  floods and dead sessions are never masked as warnings (ADR-0129).
 """
 
 from __future__ import annotations
@@ -89,6 +92,70 @@ def _raw_chatref_parse_errors(path: Path, relative: str) -> list[str]:
     ]
 
 
+ABORT_GUARD_ALLOWLIST = frozenset(
+    {
+        "src/tgcli/cli.py",
+        "src/tgcli/commands/doctor.py",
+        "src/tgcli/commands/setup.py",
+    }
+)
+
+
+def _contains_async(stmts: list[ast.stmt]) -> bool:
+    for stmt in stmts:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Await | ast.AsyncFor | ast.AsyncWith):
+                return True
+    return False
+
+
+def _handler_names(handler: ast.ExceptHandler) -> set[str]:
+    if handler.type is None:
+        return {"BaseException"}
+    names: set[str] = set()
+    for node in ast.walk(handler.type):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+    return names
+
+
+def _always_reraises(handler: ast.ExceptHandler) -> bool:
+    return bool(handler.body) and isinstance(handler.body[-1], ast.Raise)
+
+
+def _swallowed_abort_errors(path: Path, relative: str) -> list[str]:
+    """An async `except Exception` that swallows errors must let floods and
+    dead sessions escape first."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    errors: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try) or not _contains_async(node.body):
+            continue
+        prior_names: set[str] = set()
+        for handler in node.handlers:
+            names = _handler_names(handler)
+            catches_broad = handler.type is None or "Exception" in names
+            if catches_broad and not _always_reraises(handler):
+                guarded = (
+                    "RUN_ABORTING_ERRORS" in prior_names
+                    or "NOT_REFUSALS" in prior_names
+                    or (
+                        "FLOOD_ERRORS" in prior_names
+                        and "UnauthorizedError" in prior_names
+                    )
+                )
+                if not guarded:
+                    errors.append(
+                        f"{relative}:{handler.lineno} swallows Exception in an "
+                        "async block without guarding tgcli.tg_errors."
+                        "RUN_ABORTING_ERRORS or tgcli.tg_errors.NOT_REFUSALS first"
+                    )
+            prior_names |= names
+    return errors
+
+
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     for path in sorted((root / "src/tgcli").rglob("*.py")):
@@ -98,6 +165,8 @@ def check(root: Path) -> list[str]:
             errors.extend(_flood_class_errors(path, relative))
         if relative != "src/tgcli/chatref.py":
             errors.extend(_raw_chatref_parse_errors(path, relative))
+        if relative not in ABORT_GUARD_ALLOWLIST:
+            errors.extend(_swallowed_abort_errors(path, relative))
         errors.extend(_unpaced_history_errors(path, relative))
     return errors
 
