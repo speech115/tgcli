@@ -1,0 +1,14 @@
+{
+  "alias": "main",
+  "backup": null,
+  "config": "<tmp>/config/config.toml",
+  "method": "qr",
+  "session": "<tmp>/state/sessions/main.session",
+  "status": "authorized",
+  "user": {
+    "first_name": "Анна",
+    "id": 42,
+    "phone": "+7…89",
+    "username": "anna"
+  }
+}

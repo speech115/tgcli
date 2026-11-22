@@ -7,6 +7,8 @@ taking `(tg, args, account)`. All of them return `(data, rows)`.
 
 from __future__ import annotations
 
+import os
+
 from tgcli import deadline, loop, output, preview_commit, read_ops, safety
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
@@ -18,6 +20,7 @@ from tgcli.commands import (
     media as media_cmd,
     media_bulk,
     run as run_cmd,
+    setup as setup_cmd,
 )
 from tgcli.errors import PolicyError
 
@@ -79,6 +82,18 @@ def accounts_login(args, config) -> tuple[dict, list[tuple]]:
             )
         )
     return data, login_cmd.login_rows(data)
+
+
+def setup(args) -> tuple[dict, list[tuple]]:
+    requested = args.alias or args.account or os.environ.get("TGCLI_ACCOUNT")
+    args.account = setup_cmd.resolve_alias(requested)
+    data = deadline.run(
+        setup_cmd.run(
+            args.account, open_browser=not args.no_browser, timeout=args.timeout
+        ),
+        args.timeout,
+    )
+    return data, setup_cmd.rows(data)
 
 
 def doctor(args, config) -> tuple[dict, list[tuple]]:

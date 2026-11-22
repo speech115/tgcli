@@ -180,6 +180,13 @@ COMMANDS: dict[str, Command] = {
         prepare=preflight.limit("clone sync"),
     ),
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
+    "setup": Command(
+        kind="write",
+        needs="none",
+        run=handlers.setup,
+        gate="local",
+        deadline=900.0,
+    ),
     "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
     "message": _READ,

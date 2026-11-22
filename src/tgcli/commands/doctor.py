@@ -272,6 +272,15 @@ async def run(
         await check_account(account, connect=connect, preview_perms_repaired=repaired)
         for account in accounts
     ]
+    if not reports:
+        note("no Telegram account is set up yet; run: tg setup")
+    for report in reports:
+        checks = report["checks"]
+        if not checks["session_file"] or checks["authorized"] is False:
+            note(
+                f"account {report['alias']!r} is not logged in; "
+                f"run: tg setup {report['alias']}"
+            )
     if any(report["checks"]["preview_perms_ok"] is False for report in reports):
         note(
             "preview files are readable by other users; tighten them with: "
