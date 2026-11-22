@@ -531,7 +531,7 @@ def test_only_one_setup_runs_at_a_time(env, world, opened, capsys):
 
 
 def test_setup_ends_at_the_timeout(env, world, opened, capsys):
-    run = start(["setup", "--json", "--timeout", "1"], opened)
+    run = start(["setup", "--json", "--timeout", "3"], opened)
     enter_keys(run.browser)
 
     assert run.exit_code() == 1
@@ -549,3 +549,16 @@ def test_doctor_and_a_missing_config_point_to_setup(env, capsys):
     env.config.write_text(CONFIGURED)
     assert main(["doctor"]) == 0
     assert "run: tg setup main" in capsys.readouterr().err
+
+
+def test_doctor_does_not_send_a_busy_session_to_setup(env, capsys):
+    env.config.parent.mkdir(parents=True)
+    env.config.write_text(CONFIGURED)
+    session = env.state / "sessions" / "main.session"
+    session.parent.mkdir(parents=True)
+    session.write_bytes(b"live")
+
+    with session_file_lock(session):
+        assert main(["doctor", "--connect"]) == 0
+
+    assert "tg setup" not in capsys.readouterr().err

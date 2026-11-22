@@ -275,8 +275,7 @@ async def run(
     if not reports:
         note("no Telegram account is set up yet; run: tg setup")
     for report in reports:
-        checks = report["checks"]
-        if not checks["session_file"] or checks["authorized"] is False:
+        if not report["checks"]["session_file"]:
             note(
                 f"account {report['alias']!r} is not logged in; "
                 f"run: tg setup {report['alias']}"
