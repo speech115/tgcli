@@ -196,9 +196,11 @@ when something breaks. The exit codes and journal are defined in
 
 | Path | What it is |
 |---|---|
-| `~/Projects/tools/tgcli` | development checkout, where agents work |
-| `~/Projects/tools/tgcli-prod` | git worktree of the same repository on branch `main`; this is what runs |
-| `~/.local/bin/tg` | symlink to `tgcli-prod/.venv/bin/tg` (made by `scripts/install-link.sh`) |
+| `~/Projects/tools/tgcli` | the only checkout, where agents work; nothing runs from it |
+| `~/.local/share/uv/tools/tgcli` | what runs: a `uv tool` install of one `main` commit, pinned to its `uv.lock` |
+| `~/.local/bin/tg`, `tg-serve` | links into that install, made by `uv tool install` |
+| `~/.local/state/tgcli/mac-deployed-sha` | the commit the installed `tg` was built from |
+| `~/.agents/skills/tgcli/SKILL.md` | copy of `SKILL.md` from that same commit; edit it through a PR, not in place |
 | `~/.config/tgcli/` | config: accounts, `api_id` |
 | `~/.local/state/tgcli/` | sessions, previews, audit, journal, clone and archive state |
 | phone `~/apps/tgcli-next` | a separate install on the OnePlus that the remote tg-mcp connector runs through `tg-serve`; updated hourly from the Mac |
@@ -245,30 +247,34 @@ With `--session-role job` (authorize once: `tg accounts login A --role job
 
 | Agent | Every | Updates | Log |
 |---|---|---|---|
-| `com.tgcli.mac-update` | 15 min | `tgcli-prod` (`auto-update-tgcli-mac.sh`) | `~/Library/Logs/tgcli-mac-update.log` |
+| `com.tgcli.mac-update` | 15 min | the `uv tool` install (`auto-update-tgcli-mac.sh`) | `~/Library/Logs/tgcli-mac-update.log` |
 | `com.tgcli.phone-update` | 1 h | the phone over ssh (`auto-update-tgcli.sh`) | `~/Library/Logs/tgcli-phone-update.log` |
 
 Each takes a commit only when its `checks` and `test` runs are green and no
 `tg` run (on the phone: no clone sync) is in progress, then smoke-tests
 (`tg --version`, `tg --json doctor`, `clone status`; on the phone the tg-mcp
 and clone-watch services). A failed smoke test puts the previous commit back
-and that commit is not tried again. The Mac agent refuses to touch
-`tgcli-prod` when it has local commits or edits, and says so in its log.
+and that commit is not tried again. The Mac agent installs from the commit in
+the repository's object store, so the checkout's branch, edits and worktrees
+never reach the `tg` on PATH.
 
 So a merged change reaches agents on the Mac within about 15 minutes. If it
 has not, read the log first. To ship by hand, when no `clone sync` or
-`archive sync` is running (`pgrep -fl 'bin/tg '`):
+`archive sync` is running (`pgrep -fl 'bin/tg'`), run the agent's script:
 
 ```bash
-cd ~/Projects/tools/tgcli-prod
-git rev-parse --short HEAD          # note it for a rollback
-git fetch origin main && git merge --ff-only origin/main
-uv sync --frozen --extra fast       # frozen lockfile; the extra keeps cryptg
+~/Projects/tools/tg-mcp/deploy/auto-update-tgcli-mac.sh
 ```
 
-To roll back: `git reset --keep <noted commit>` and `uv sync --frozen --extra
-fast` in `tgcli-prod`, then fix forward on `main`. A change that migrated a
-SQLite schema cannot be rolled back this way; the fix goes forward.
+To install one commit, a rollback included (the deployed one is in
+`mac-deployed-sha`), use the script's own `ship` and `smoke`:
+
+```bash
+bash -c 'source ~/Projects/tools/tg-mcp/deploy/auto-update-tgcli-mac.sh && ship <commit> && smoke'
+```
+
+Then fix forward on `main`. A change that migrated a SQLite schema cannot be
+rolled back this way; the fix goes forward.
 
 ### Release (only when the owner asks)
 
@@ -302,7 +308,7 @@ stderr.
 | `archive status` lists `gaps` | Telegram could not deliver part of the update history (`differenceTooLong`), or the stored cursor did not decode | nothing; `archive sync` re-reads every chat that moved and clears the gap once no catch-up is left. Edits and deletions inside the lost stretch stay lost |
 | `clone init --commit` stops partway (a flood on the discussion link, say) | the preview is spent only on success | rerun the same `--commit PREVIEW_ID` while it is unexpired (5 minutes); it resumes |
 | exit 2, `BLOCKED` | a safety gate refused (`--readonly`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`), or an argument was refused (a bad `--limit`), or a busy session on `accounts login`/`remove` | for the gates: intended in agent sessions. For an owner-approved write, prefix that one command with `TGCLI_READONLY=0`; `TGCLI_NO_SEND=1` must be unset too |
-| `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | `uv sync --frozen --extra fast` in `tgcli-prod` installs `cryptg` |
+| `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | reinstall with the `ship` command above; it installs the `fast` extra (`cryptg`) |
 
 If none of these fits, keep the journal line and the stderr output, and open
 an issue. Never open a `.session` file with bare `python3` to look inside: the
