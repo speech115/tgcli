@@ -175,7 +175,8 @@ exist:
   `~/.gemini/GEMINI.md`, which Gemini CLI and Antigravity both read. A rerun
   replaces the block.
 - Codex gets `~/.codex/rules/tgcli.rules`, which lets `tg` run outside the
-  sandbox without a prompt. In `~/.codex/config.toml` it gets a
+  sandbox without a prompt, except `send`, `edit`, `delete` and `forward`
+  with `--commit`: Codex asks the human before each of those. In `~/.codex/config.toml` it gets a
   `[sandbox_workspace_write]` table that allows the network and writes to
   `~/.config/tgcli` and `~/.local/state/tgcli`. The block saves a backup of
   `config.toml` before it changes the file. It restores the backup if the
@@ -244,10 +245,15 @@ if codex.is_dir():
     put_block(override if has_override else codex / "AGENTS.md")
     rules = codex / "rules/tgcli.rules"
     rules.parent.mkdir(parents=True, exist_ok=True)
+    tgs = f'["tg", {json.dumps(tg)}]'
+    writes = '["send", "edit", "delete", "forward"]'
+    ask = 'decision="prompt", justification="sends, edits or deletes a Telegram message")\n'
     rules.write_text(
-        f'prefix_rule(pattern=[["tg", {json.dumps(tg)}]], decision="allow", '
+        f'prefix_rule(pattern=[{tgs}], decision="allow", '
         'justification="tgcli needs the network and writes ~/.config/tgcli '
         'and ~/.local/state/tgcli")\n'
+        f'prefix_rule(pattern=[{tgs}, "--json", {writes}, "--commit"], {ask}'
+        f'prefix_rule(pattern=[{tgs}, {writes}, "--commit"], {ask}'
     )
     print("codex rule:", rules)
     config = codex / "config.toml"

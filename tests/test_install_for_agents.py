@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -98,6 +99,21 @@ def test_connect_sets_up_every_agent_and_a_rerun_changes_nothing(tmp_path):
     rule = (home / ".codex" / "rules" / "tgcli.rules").read_text()
     assert f'pattern=[["tg", "{home}/.local/bin/tg"]]' in rule
     assert 'decision="allow"' in rule
+    assert rule.count('decision="prompt"') == 2
+    policy = home / ".codex" / "rules" / "tgcli.rules"
+    tg = f"{home}/.local/bin/tg"
+    if shutil.which("codex"):
+        for command, decision in [
+            (["tg", "--json", "read", "me"], "allow"),
+            (["tg", "--json", "send", "me", "hi", "--preview"], "allow"),
+            (["tg", "--json", "send", "--commit", "abc"], "prompt"),
+            ([tg, "delete", "--commit", "abc"], "prompt"),
+        ]:
+            out = subprocess.run(
+                ["codex", "execpolicy", "check", "-r", str(policy), "--", *command],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            assert json.loads(out)["decision"] == decision, command
 
 
 def test_connect_replaces_an_outdated_block_and_keeps_the_rest(tmp_path):
