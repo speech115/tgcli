@@ -98,6 +98,8 @@ Override the target with `TGCLI_BIN_DIR=/somewhere/bin`. The script warns if ano
 
 ### Configure an account
 
+The easy way is `tg setup`: it opens a page in your browser that walks you through getting the keys and logging in, and writes the config for you. To do it by hand instead:
+
 Create `~/.config/tgcli/config.toml` with credentials from [my.telegram.org](https://my.telegram.org). It holds your API hash, so create it private:
 
 ```bash

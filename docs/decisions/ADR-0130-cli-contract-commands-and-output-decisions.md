@@ -84,6 +84,16 @@ show; the code is the authority for what it does.
 - `_uploaded_media`: Unset, Telegram may turn a video without sound into a GIF.
 - `commit_forward`: A retry after an unknown outcome skips the content check: the stored random_id lets Telegram answer already_sent instead of a second forward.
 
+### `src/tgcli/commands/setup.py`
+
+- module: QR login is back, but only inside this page (the phone-only rule of ADR-0088 still holds for `accounts login`). A person whose agent runs `tg setup` reads a browser tab and holds a phone; scanning is the one path with nothing to type. The owner approved the command, the page and the `segno` dependency on 2026-11-22.
+- `SetupFlow`: one staged session and one connected client per attempt, kept for the whole page, because a QR scan and a cloud password must reach the same client. The phone and `phone_code_hash` stay in memory, never in `logins/`.
+- `SetupFlow._submit_keys`: Telegram checks api keys only on the first request, so rejected keys discard the attempt and return the person to the keys step. The config is written only after the login succeeds.
+- `SetupFlow.start`: an orphan session for an alias that is not in the config is not probed (its keys are unknown before the page asks); a login replaces it and keeps it as `.bak`, as `accounts login --force` does.
+- `QR_MIN_REFRESH_S`: token expiry is judged by the host clock, so a clock running ahead of Telegram would see every fresh token as expired and re-issue tokens in a loop. A token lives about 30 s, so the floor never delays an honest refresh.
+- `_ensure_default_account`: a new person's config would otherwise have no `default_account`, and every other command would need `--account`. A top-level TOML key must precede the first table, so it is prepended.
+- `run`: one `tg setup` per state directory (`setup.lock`). A cancel on the page is exit 2: the person declined, and the agent must not start it again on its own.
+
 ### `src/tgcli/config.py`
 
 - `load_config`: The api_hash is a secret; a config made by hand is usually 0644.
@@ -142,6 +152,7 @@ show; the code is the authority for what it does.
 
 ### `src/tgcli/registry.py`
 
+- `setup`: a 900 s default deadline: the person may first have to create api keys on my.telegram.org.
 - `_login_deadline`: `--continue` waits on a person typing a code: no implicit deadline.
 
 ### `src/tgcli/serve.py`
@@ -150,6 +161,12 @@ show; the code is the authority for what it does.
 - `invoke`: stdin is the request pipe: a command that reads stdin gets the request's text.
 - `main`: Replies own the real stdout; whatever else a command prints is captured.
 - `main`: The parent reads stdout for the ready line: a failed start answers there.
+
+### `src/tgcli/setup_web.py`
+
+- module: hand-parsed HTTP on the command's own event loop, so the Telethon client and the server share one loop and no thread touches the client. The page polls `state`; a long-poll would add little on loopback.
+- `Site.respond`: the token in the path keeps out other local users, the Host check keeps out DNS rebinding, and `Origin` is checked when a browser sends it. A request without the token is refused whatever it carries.
+- `serve`: browsers keep idle sockets open ahead of time, and `Server.wait_closed` waits on them since Python 3.12, so the server closes them itself and bounds the wait.
 
 ## Consequences
 
