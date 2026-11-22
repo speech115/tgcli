@@ -1202,3 +1202,45 @@ class CloneInitReplaceMachine(RuleBasedStateMachine):
 CloneInitReplaceMachine.TestCase.settings = settings(
     max_examples=40, stateful_step_count=8, derandomize=True, deadline=None
 )
+
+
+@pytest.mark.parametrize(
+    ("request_type", "error", "expected_exit"),
+    [
+        (
+            functions.account.UpdateNotifySettingsRequest,
+            telethon_errors.FloodWaitError(request=None, capture=45),
+            5,
+        ),
+        (
+            functions.messages.UpdateDialogFilterRequest,
+            telethon_errors.AuthKeyUnregisteredError(request=None),
+            1,
+        ),
+    ],
+    ids=["mute-flood", "folder-dead-session"],
+)
+def test_clone_init_ergonomics_does_not_swallow_flood_or_dead_session(
+    config_env, monkeypatch, capsys, request_type, error, expected_exit
+):
+    """Issue #509: mute and folder ergonomics are best-effort for refusals,
+    never for floods or a dead session."""
+
+    class FailingErgonomics(CloneInitClient):
+        async def __call__(self, request):
+            if isinstance(request, request_type):
+                raise error
+            return await super().__call__(request)
+
+    monkeypatch.delenv("TGCLI_READONLY", raising=False)
+    client = FailingErgonomics()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    code = main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    )
+
+    assert code == expected_exit
+    payload = json.loads(capsys.readouterr().out)
+    assert "error" in payload

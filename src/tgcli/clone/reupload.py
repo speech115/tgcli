@@ -18,7 +18,7 @@ from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.state_paths import ensure_state_dir
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import NOT_REFUSALS
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
@@ -72,7 +72,7 @@ async def uploaded_thumb(tg, message, document, path: Path):
         if downloaded is None:
             return None
         return await tg.upload_file(downloaded)
-    except TRANSIENT_ERRORS:
+    except NOT_REFUSALS:
         raise
     except Exception as exc:
         note(f"warning: clone thumb skipped for source message {message.id}: {exc}")

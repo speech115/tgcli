@@ -126,3 +126,34 @@ def test_ban_check_rejects_raw_chatref_parse_outside_chatref(tmp_path):
         "    return await chatref.resolve(tg, chat)\n"
     )
     assert _run(tmp_path).returncode == 0
+
+
+def test_ban_check_rejects_async_except_exception_without_abort_guard(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/clone/ergonomics.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(
+        "async def mute(tg):\n"
+        "    try:\n"
+        "        await tg()\n"
+        "    except Exception:\n"
+        "        return False\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "ergonomics.py:4 swallows Exception in an async block" in result.stdout
+    assert "RUN_ABORTING_ERRORS" in result.stdout
+
+    module.write_text(
+        "from tgcli.tg_errors import NOT_REFUSALS\n"
+        "async def mute(tg):\n"
+        "    try:\n"
+        "        await tg()\n"
+        "    except NOT_REFUSALS:\n"
+        "        raise\n"
+        "    except Exception:\n"
+        "        return False\n"
+    )
+    assert _run(tmp_path).returncode == 0
