@@ -1,6 +1,6 @@
 [project]
 name = "tgcli"
-version = "5.0.0"
+version = "5.1.0"
 description = "Stateless Telegram CLI for humans, scripts, and AI agents"
 requires-python = ">=3.12"
 dependencies = ["telethon==1.44.0", "segno==1.6.6"]
