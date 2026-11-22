@@ -190,12 +190,14 @@ async def _finish_authorized(
     await client.disconnect()
     _audit_login(alias, method=method, outcome="authorized", phone=phone, role=role)
     if is_new and role is None:
-        backup = login_state.promote(login_id, dest, keep_backup=True)
-        try:
-            _append_config_block(default_config_path(), alias, api_id, api_hash)
-        except ConfigError:
-            _undo_promote(dest, backup)
-            raise
+        backup = login_state.promote(
+            login_id,
+            dest,
+            keep_backup=True,
+            then=lambda: _append_config_block(
+                default_config_path(), alias, api_id, api_hash
+            ),
+        )
     else:
         backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
         _discard_if_account_removed(alias, dest, backup, method=method, role=role)
@@ -211,14 +213,6 @@ async def _finish_authorized(
     if role is not None:
         result["role"] = role
     return result
-
-
-def _undo_promote(dest: Path, backup: Path | None) -> None:
-    with session_file_lock(dest, busy_error=PolicyError, wait=BUSY_WAIT_SECONDS):
-        if backup is not None and backup.is_file():
-            os.replace(backup, dest)
-        else:
-            dest.unlink(missing_ok=True)
 
 
 def _discard_if_account_removed(
@@ -240,7 +234,11 @@ def _discard_if_account_removed(
     if present:
         return
     _audit_login(alias, method=method, outcome="discarded", role=role)
-    _undo_promote(dest, backup)
+    with session_file_lock(dest, busy_error=PolicyError, wait=BUSY_WAIT_SECONDS):
+        if backup is not None and backup.is_file():
+            os.replace(backup, dest)
+        else:
+            dest.unlink(missing_ok=True)
     raise NotFoundError(
         f"account {alias!r} was removed while this login was in progress; "
         "the new session was deleted"

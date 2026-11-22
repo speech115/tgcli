@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -154,11 +155,14 @@ def promote(
     destination: Path,
     *,
     keep_backup: bool,
+    then: Callable[[], None] | None = None,
 ) -> Path | None:
     """Atomically move the staged session into `destination`.
 
     The only writer of `sessions/<alias>.session`. Caller must have
-    disconnected the Telethon client first so SQLite is closed.
+    disconnected the Telethon client first so SQLite is closed. `then` runs
+    under the same lock; if it raises, the replaced session goes back, so a
+    concurrent promote of the same destination never loses its file.
     """
     staged = staged_session_path(login_id)
     if not staged.is_file():
@@ -182,4 +186,13 @@ def promote(
             os.replace(staged, destination)
         restrict_file(destination)
         discard_attempt(login_id)
+        if then is not None:
+            try:
+                then()
+            except Exception:
+                if backup_path is not None and backup_path.is_file():
+                    os.replace(backup_path, destination)
+                else:
+                    destination.unlink(missing_ok=True)
+                raise
         return backup_path
