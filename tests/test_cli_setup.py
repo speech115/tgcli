@@ -562,3 +562,35 @@ def test_doctor_does_not_send_a_busy_session_to_setup(env, capsys):
         assert main(["doctor", "--connect"]) == 0
 
     assert "tg setup" not in capsys.readouterr().err
+
+
+def test_a_local_failure_after_the_scan_ends_setup(
+    env, world, opened, capsys, monkeypatch
+):
+    blocker = env.tmp / "not-a-directory"
+    blocker.write_text("")
+    monkeypatch.setenv("TGCLI_CONFIG", str(blocker / "config.toml"))
+    run = start(["setup", "--json", "--timeout", "10"], opened)
+    enter_keys(run.browser)
+
+    world.scanned.set()
+
+    assert run.exit_code() == 1
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "RUNTIME"
+
+
+def test_an_account_set_up_meanwhile_keeps_its_session(env, world, opened, capsys):
+    run = start(["setup", "--json"], opened)
+    enter_keys(run.browser)
+    env.config.parent.mkdir(parents=True)
+    env.config.write_text(CONFIGURED)
+    session = env.state / "sessions" / "main.session"
+    session.parent.mkdir(parents=True, exist_ok=True)
+    session.write_bytes(b"theirs")
+
+    world.scanned.set()
+
+    assert run.exit_code() == 3
+    assert session.read_bytes() == b"theirs"
+    assert not session.with_name("main.session.bak").exists()
+    assert staged_files(env) == []

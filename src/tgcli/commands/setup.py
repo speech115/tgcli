@@ -326,16 +326,27 @@ class SetupFlow:
         self._qr_expires = qr.expires
 
     async def _watch_qr(self, qr) -> None:
+        """Wait for the scan, then finish under the lock. Only the Telegram
+        calls map to page errors: a local failure after Telegram accepted
+        the scan ends the flow, since the client is already disconnected."""
         try:
             with _telegram_errors():
-                await self._await_scan(qr)
+                needs_password = await self._await_scan(qr)
+            async with self._lock:
+                if self.step != "qr":
+                    return
+                if needs_password:
+                    await self._need_password("qr")
+                else:
+                    await self._authorized("qr")
         except FormError as exc:
             self._qr_svg = None
             self._show_error(exc)
         except Exception as exc:
             self._fail(exc)
 
-    async def _await_scan(self, qr) -> None:
+    async def _await_scan(self, qr) -> bool:
+        """True when the account needs its cloud password next."""
         while True:
             left = (qr.expires - datetime.now(UTC)).total_seconds()
             try:
@@ -346,12 +357,8 @@ class SetupFlow:
                     self._show_qr(qr)
                 continue
             except telethon_errors.SessionPasswordNeededError:
-                async with self._lock:
-                    await self._need_password("qr")
-                return
-            async with self._lock:
-                await self._authorized("qr")
-            return
+                return True
+            return False
 
     async def _need_password(self, method: str) -> None:
         self._method = method
@@ -364,6 +371,8 @@ class SetupFlow:
 
     async def _authorized(self, method: str) -> None:
         assert self._keys is not None and self._login_id is not None
+        if self._is_new:
+            self._refuse_if_added_meanwhile()
         api_id, api_hash = self._keys
         result = await _finish_authorized(
             self._client,
@@ -380,6 +389,16 @@ class SetupFlow:
         self._login_id = None
         _ensure_default_account(default_config_path(), self.alias)
         self._finish("authorized", method, result["user"], result["backup"])
+
+    def _refuse_if_added_meanwhile(self) -> None:
+        """Another login may have set up this alias while the page was open;
+        promoting now would replace that session before the config refuses."""
+        if self.alias in _existing_config().accounts:
+            raise ConfigError(
+                f"account {self.alias!r} was set up by another login while this "
+                "page was open; nothing was replaced"
+            )
+        _reject_colliding_alias(default_config_path(), self.alias)
 
     def _finish(
         self, status: str, method: str | None, user: dict | None, backup: str | None
@@ -470,6 +489,7 @@ class SetupFlow:
         await self._begin_configured_qr()
 
     async def _cancel(self, form: dict) -> None:
+        await self._stop_watcher()
         self.step = "cancelled"
         self.finished.set()
 
