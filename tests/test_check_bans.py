@@ -102,3 +102,27 @@ def test_ban_check_accepts_atomic_writer_in_state_module(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 0, result.stdout
+
+
+def test_ban_check_rejects_raw_chatref_parse_outside_chatref(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/commands/send.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(
+        "from tgcli import chatref\n"
+        "async def go(tg, chat):\n"
+        "    return await tg.get_entity(chatref.parse(chat))\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "send.py:3 calls chatref.parse directly" in result.stdout
+    assert "tgcli.chatref.resolve" in result.stdout
+
+    module.write_text(
+        "from tgcli import chatref\n"
+        "async def go(tg, chat):\n"
+        "    return await chatref.resolve(tg, chat)\n"
+    )
+    assert _run(tmp_path).returncode == 0

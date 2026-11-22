@@ -53,11 +53,13 @@ async def account_id(tg) -> int:
 async def source_peer(tg, source: str, account_user_id: int):
     """SOURCE as an input peer the session names without a full resolve, or
     None when it cannot (the caller then resolves the source in full)."""
-    ref = chatref.parse(source)
-    if isinstance(ref, str):
-        ref = lookup.recorded_source_ref(account_user_id, source) or ref
+    ref = (
+        None
+        if source.lstrip("-").isdigit()
+        else lookup.recorded_source_ref(account_user_id, source)
+    )
     try:
-        peer = await tg.get_input_entity(ref)
+        peer = await chatref.resolve_input(tg, ref or source)
     except discussion.PEER_UNAVAILABLE:
         return None
     if isinstance(peer, types.InputPeerSelf):

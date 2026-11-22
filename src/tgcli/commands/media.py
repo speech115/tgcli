@@ -207,11 +207,13 @@ async def resolve_message(
     tg, source: MediaSource, account_alias: str, *, codec: str | None = None
 ) -> tuple[object, _DownloadTarget]:
     try:
-        entity = (
-            await _resolve_private_entity(tg, source.private_channel_id, account_alias)
-            if source.private_channel_id is not None
-            else await tg.get_entity(chatref.parse(source.chat))  # type: ignore
-        )
+        if source.private_channel_id is not None:
+            entity = await _resolve_private_entity(
+                tg, source.private_channel_id, account_alias
+            )
+        else:
+            assert source.chat is not None
+            entity = await chatref.resolve(tg, source.chat)
     except ValueError:
         raise NotFoundError(f"dialog not found: {source.chat!r}") from None
 

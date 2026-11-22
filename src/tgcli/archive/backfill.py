@@ -53,7 +53,7 @@ async def enumerate_private_dialogs(
 
 async def resolve_entity(tg, chat: str):
     try:
-        return await tg.get_entity(chatref.parse(chat))
+        return await chatref.resolve(tg, chat)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 

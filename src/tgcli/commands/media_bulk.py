@@ -54,7 +54,7 @@ async def download_media_bulk(
     """Download many media messages. Raises PartialFailure if any fail."""
 
     try:
-        entity = await tg.get_entity(chatref.parse(chat))
+        entity = await chatref.resolve(tg, chat)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
@@ -266,7 +266,7 @@ async def manifest(
 ) -> dict:
 
     try:
-        entity = await tg.get_entity(chatref.parse(source))
+        entity = await chatref.resolve(tg, source)
     except ValueError:
         raise NotFoundError(f"dialog not found: {source!r}") from None
 

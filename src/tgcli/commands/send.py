@@ -26,14 +26,14 @@ def _target_to_dict(entity) -> dict:
 
 async def _entity(tg, chat: str):
     try:
-        return await tg.get_entity(chatref.parse(chat))
+        return await chatref.resolve(tg, chat)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
-async def _input_peer(tg, chat: str):
+async def _input_peer(tg, chat: str, *, expected_peer_id: int | None = None):
     try:
-        return await tg.get_input_entity(chatref.parse(chat))
+        return await chatref.resolve_input(tg, chat, expected_peer_id=expected_peer_id)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
@@ -87,22 +87,23 @@ async def prepare(
 
     formatting.render(body, fmt)
     entity = await _entity(tg, chat)
-    stored = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": chat,
-            "text": body,
-            "format": fmt,
-            "file": str(path) if path else None,
-            "file_size": file_size,
-            "file_sha256": file_sha256,
-            "reply_to": reply_to,
-            "topic": topic,
-            "silent": silent,
-            "random_id": confirm.random_id(),
-            "to": _target_to_dict(entity),
-        }
-    )
+    payload = {
+        "kind": "send",
+        "chat": chat,
+        "text": body,
+        "format": fmt,
+        "file": str(path) if path else None,
+        "file_size": file_size,
+        "file_sha256": file_sha256,
+        "reply_to": reply_to,
+        "topic": topic,
+        "silent": silent,
+        "random_id": confirm.random_id(),
+        "to": _target_to_dict(entity),
+    }
+    if (to_peer_id := chatref.marked_peer_id(entity)) is not None:
+        payload["to_peer_id"] = to_peer_id
+    stored = safety.create_preview(payload)
     keys = (
         "preview_id",
         "to",
@@ -217,7 +218,9 @@ def _verified_file_snapshot(payload: dict, directory: str) -> Path:
 
 
 async def commit(tg, preview_id: str, payload: dict) -> dict:
-    peer = await _input_peer(tg, payload["chat"])
+    peer = await _input_peer(
+        tg, payload["chat"], expected_peer_id=payload.get("to_peer_id")
+    )
     random_id = payload["random_id"]
     message, entities = formatting.render(payload["text"], payload.get("format", "md"))
     common = {
@@ -294,23 +297,26 @@ async def prepare_forward(
         )
     destination = await _entity(tg, chat)
     shown = message_to_dict(message, source)
-    stored = safety.create_preview(
-        {
-            "kind": "forward",
-            "from_chat": from_chat,
-            "message_id": message_id,
-            "chat": chat,
-            "copy": copy,
-            "silent": silent,
-            "random_id": confirm.random_id(),
-            "from": _target_to_dict(source),
-            "to": _target_to_dict(destination),
-            "text": shown["text"],
-            "media_kind": shown["media_kind"],
-            "media_info": shown["media_info"],
-            "content_sha256": content_fingerprint(message),
-        }
-    )
+    payload = {
+        "kind": "forward",
+        "from_chat": from_chat,
+        "message_id": message_id,
+        "chat": chat,
+        "copy": copy,
+        "silent": silent,
+        "random_id": confirm.random_id(),
+        "from": _target_to_dict(source),
+        "to": _target_to_dict(destination),
+        "text": shown["text"],
+        "media_kind": shown["media_kind"],
+        "media_info": shown["media_info"],
+        "content_sha256": content_fingerprint(message),
+    }
+    if (from_peer_id := chatref.marked_peer_id(source)) is not None:
+        payload["from_peer_id"] = from_peer_id
+    if (to_peer_id := chatref.marked_peer_id(destination)) is not None:
+        payload["to_peer_id"] = to_peer_id
+    stored = safety.create_preview(payload)
     keys = (
         "preview_id",
         "from",
@@ -328,7 +334,12 @@ async def prepare_forward(
 
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     random_id = payload["random_id"]
-    source = await _input_peer(tg, payload["from_chat"])
+    source = await _input_peer(
+        tg, payload["from_chat"], expected_peer_id=payload.get("from_peer_id")
+    )
+    destination = await _input_peer(
+        tg, payload["chat"], expected_peer_id=payload.get("to_peer_id")
+    )
     if not safety.was_attempted(preview_id):
         message = await tg.get_messages(source, ids=payload["message_id"])
         if message is None:
@@ -339,7 +350,7 @@ async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     request = functions.messages.ForwardMessagesRequest(
         from_peer=source,
         id=[payload["message_id"]],
-        to_peer=await _input_peer(tg, payload["chat"]),
+        to_peer=destination,
         random_id=[random_id],
         silent=payload["silent"] or None,
         drop_author=payload["copy"] or None,

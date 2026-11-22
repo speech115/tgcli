@@ -1,4 +1,4 @@
-"""Three checks that keep a live account out of trouble.
+"""Checks that keep a live account and its safety contracts out of trouble.
 
 - Floods are caught through ``tg_errors.FLOOD_ERRORS``: naming one class lets
   the other 420 (FLOOD_PREMIUM_WAIT) pass as a refusal.
@@ -6,6 +6,9 @@
   history pages back to back.
 - State read back later is written through ``tgcli.atomic.replace_text``,
   never a bare ``write_text`` a crash can leave half-written.
+- Chat references resolve through ``tgcli.chatref.resolve`` or
+  ``tgcli.chatref.resolve_input``, never bare ``chatref.parse(...)``: raw
+  parsing skips marked peer-id verification and preview peer pinning.
 """
 
 from __future__ import annotations
@@ -70,6 +73,22 @@ def _unpaced_history_errors(path: Path, relative: str) -> list[str]:
     ]
 
 
+def _raw_chatref_parse_errors(path: Path, relative: str) -> list[str]:
+    """Raw chatref.parse() bypasses marked peer-id checks and preview pinning."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return [
+        f"{relative}:{node.lineno} calls chatref.parse directly; use "
+        "tgcli.chatref.resolve or tgcli.chatref.resolve_input instead so "
+        "marked peer ids and preview targets are verified"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "chatref"
+        and node.func.attr == "parse"
+    ]
+
+
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     for path in sorted((root / "src/tgcli").rglob("*.py")):
@@ -77,6 +96,8 @@ def check(root: Path) -> list[str]:
         errors.extend(_state_write_errors(path, relative))
         if relative != "src/tgcli/tg_errors.py":
             errors.extend(_flood_class_errors(path, relative))
+        if relative != "src/tgcli/chatref.py":
+            errors.extend(_raw_chatref_parse_errors(path, relative))
         errors.extend(_unpaced_history_errors(path, relative))
     return errors
 

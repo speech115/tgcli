@@ -43,7 +43,7 @@ def _atomic_text_destination(destination: Path, *, preserve_existing: bool = Fal
 
 async def _resolve_entity(tg, chat: str):
     try:
-        return await tg.get_entity(chatref.parse(chat))
+        return await chatref.resolve(tg, chat)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
