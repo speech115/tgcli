@@ -75,7 +75,7 @@ async def resolve(tg, ref: str) -> dict:
             raise NotFoundError(f"phone not found: {ref!r}")
         return {"peer": peer_to_dict(entity)}
     try:
-        entity = await tg.get_entity(chatref.parse(ref))
+        entity = await chatref.resolve(tg, ref)
     except ValueError:
         raise NotFoundError(f"dialog not found: {ref!r}") from None
     return {"peer": peer_to_dict(entity)}

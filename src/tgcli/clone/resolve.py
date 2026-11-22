@@ -37,11 +37,13 @@ def record_destination_name(clone_state, destination) -> None:
 async def resolve_source(tg, source: str, *, account_user_id: int | None = None):
     """Resolve SOURCE to an entity. Pass ``account_user_id`` where a clone must
     already exist, so a title can be answered from state instead of Telegram."""
-    ref = chatref.parse(source)
-    if account_user_id is not None and isinstance(ref, str):
-        ref = lookup.recorded_source_ref(account_user_id, source) or ref
+    ref = (
+        lookup.recorded_source_ref(account_user_id, source)
+        if account_user_id is not None and not source.lstrip("-").isdigit()
+        else None
+    )
     try:
-        entity = await tg.get_entity(ref)
+        entity = await chatref.resolve(tg, ref or source)
     except DESTINATION_UNAVAILABLE:
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)

@@ -63,7 +63,28 @@ class SessionFileClient(Client):
             return [self._fetch(item) for item in request.id]
         if isinstance(request, functions.channels.GetChannelsRequest):
             return types.messages.Chats(chats=[self._fetch(i) for i in request.id])
+        if isinstance(
+            request,
+            functions.messages.SendMessageRequest
+            | functions.messages.ForwardMessagesRequest
+            | functions.messages.EditMessageRequest
+            | functions.messages.DeleteMessagesRequest,
+        ):
+            return types.Updates(
+                updates=[types.UpdateMessageID(id=99, random_id=1)],
+                users=[],
+                chats=[],
+                date=DATE,
+                seq=0,
+            )
         raise AssertionError(f"Unexpected offline RPC: {type(request).__name__}")
+
+    async def edit_message(self, entity, message_id, text, **kwargs):
+        self.requests.append(("edit_message", entity, message_id, text))
+        return message(message_id, entity, message=text)
+
+    async def delete_messages(self, entity, message_ids, **kwargs):
+        self.requests.append(("delete_messages", entity, message_ids))
 
     def iter_messages(self, *args, **kwargs):
         return self.messages.iter_messages(*args, **kwargs)
@@ -135,3 +156,46 @@ async def test_an_input_peer_by_name_is_the_peer_get_entity_picks(tmp_path):
     peer = await client.get_input_entity(NAME)
 
     assert utils.get_peer_id(peer) == USER_ID
+
+
+@pytest.mark.parametrize(
+    ("command", "preview_argv"),
+    [
+        ("send", ["send", "--preview", "--json", "--", NAME, "hello"]),
+        ("edit", ["edit", "--preview", "--json", "--", NAME, "7", "updated"]),
+        ("delete", ["delete", "--preview", "--json", "--", NAME, "7"]),
+        ("forward", ["forward", "--preview", "--json", "--", NAME, "7", NAME]),
+    ],
+    ids=["send", "edit", "delete", "forward"],
+)
+def test_commit_refuses_when_display_name_switches_peer_after_preview(
+    config_env, monkeypatch, capsys, tmp_path, command, preview_argv
+):
+    """PR #518 P1: if the channel shown in preview refuses us before commit,
+    re-resolving the display name must not deliver to a different peer."""
+    monkeypatch.setenv("TGCLI_READONLY", "0")
+    channel = _private_channel()
+    user = _user()
+    client = SessionFileClient(
+        tmp_path / "s", [channel, user], accessible=[channel, user]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(preview_argv) == 0
+    preview = json.loads(capsys.readouterr().out)
+    client.requests.clear()
+
+    client.accessible = {utils.get_peer_id(user)}
+    assert main([command, "--commit", preview["preview_id"], "--json"]) == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "target peer changed" in error["message"]
+    assert not any(
+        isinstance(
+            req,
+            functions.messages.SendMessageRequest
+            | functions.messages.ForwardMessagesRequest,
+        )
+        or (isinstance(req, tuple) and req[0] in ("edit_message", "delete_messages"))
+        for req in client.requests
+    )

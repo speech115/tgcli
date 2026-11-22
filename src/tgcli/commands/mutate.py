@@ -9,7 +9,14 @@ from tgcli.messages import sanitize_plain_text
 
 async def _entity(tg, chat: str):
     try:
-        return await tg.get_entity(chatref.parse(chat))
+        return await chatref.resolve(tg, chat)
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {chat!r}") from None
+
+
+async def _input_peer(tg, chat: str, *, expected_peer_id: int | None = None):
+    try:
+        return await chatref.resolve_input(tg, chat, expected_peer_id=expected_peer_id)
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
@@ -27,25 +34,29 @@ async def prepare_edit(
     formatting.render(text, fmt)
     entity = await _entity(tg, chat)
     message = await _message(tg, entity, message_id)
-    stored = safety.create_preview(
-        {
-            "kind": "edit",
-            "chat": chat,
-            "message_id": message_id,
-            "old_text": message.text or "",
-            "text": text,
-            "format": fmt,
-        }
-    )
+    payload = {
+        "kind": "edit",
+        "chat": chat,
+        "message_id": message_id,
+        "old_text": message.text or "",
+        "text": text,
+        "format": fmt,
+    }
+    if (peer_id := chatref.marked_peer_id(entity)) is not None:
+        payload["peer_id"] = peer_id
+    stored = safety.create_preview(payload)
     keys = ("preview_id", "message_id", "old_text", "text", "format", "expires_at")
     return {key: stored[key] for key in keys}
 
 
 async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
     body, entities = formatting.render(payload["text"], payload.get("format", "plain"))
+    peer = await _input_peer(
+        tg, payload["chat"], expected_peer_id=payload.get("peer_id")
+    )
     try:
         message = await tg.edit_message(
-            chatref.parse(payload["chat"]),
+            peer,
             payload["message_id"],
             body,
             formatting_entities=entities,
@@ -62,23 +73,25 @@ async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
 async def prepare_delete(tg, chat: str, message_id: int) -> dict:
     entity = await _entity(tg, chat)
     message = await _message(tg, entity, message_id)
-    stored = safety.create_preview(
-        {
-            "kind": "delete",
-            "chat": chat,
-            "message_id": message_id,
-            "text": message.text or "",
-        }
-    )
+    payload = {
+        "kind": "delete",
+        "chat": chat,
+        "message_id": message_id,
+        "text": message.text or "",
+    }
+    if (peer_id := chatref.marked_peer_id(entity)) is not None:
+        payload["peer_id"] = peer_id
+    stored = safety.create_preview(payload)
     keys = ("preview_id", "message_id", "text", "expires_at")
     return {key: stored[key] for key in keys}
 
 
 async def commit_delete(tg, preview_id: str, payload: dict) -> dict:
+    peer = await _input_peer(
+        tg, payload["chat"], expected_peer_id=payload.get("peer_id")
+    )
     try:
-        await tg.delete_messages(
-            chatref.parse(payload["chat"]), [payload["message_id"]], revoke=True
-        )
+        await tg.delete_messages(peer, [payload["message_id"]], revoke=True)
     except ValueError:
         raise NotFoundError(f"dialog not found: {payload['chat']!r}") from None
     return {"preview_id": preview_id, "message_id": payload["message_id"]}
