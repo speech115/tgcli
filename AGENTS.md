@@ -7,7 +7,7 @@ daemons; state lives only in `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 - Using the CLI: [SKILL.md](SKILL.md) and `tg COMMAND --help`.
 - What callers rely on (streams, exit codes, journal): [docs/CONTRACT.md](docs/CONTRACT.md).
   JSON shapes are pinned by `tests/snapshots/`.
-- Running it, shipping `main`, troubleshooting: [README](README.md#operations).
+- Running it, shipping `main`, troubleshooting: [docs/DEVELOPERS.md](docs/DEVELOPERS.md#operations).
 - Backlog: GitHub Issues. History: `git log` and PR descriptions.
 
 ```bash
