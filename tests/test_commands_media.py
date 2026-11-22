@@ -11,7 +11,6 @@ from tests.conftest import ns
 from tgcli.commands import media
 from tgcli.commands.media import (
     MediaSource,
-    _resume_offset,
     _source_label,
     _state_paths,
     download_media,
@@ -34,13 +33,6 @@ def make_channel(channel_id: int) -> types.Channel:
 
 def make_user(user_id: int) -> types.User:
     return types.User(id=user_id, first_name="Same Id", access_hash=0)
-
-
-def _target(media_obj=None, size=None):
-    """Minimal `_DownloadTarget` for the `_resume_offset` unit tests."""
-    from tgcli.commands.media import _DownloadTarget
-
-    return _DownloadTarget(media=media_obj or object(), filename="out.bin", size=size)
 
 
 def test_parse_source_accepts_private_link():
@@ -271,51 +263,65 @@ async def test_parallel_download_restarts_after_a_killed_transfer(tmp_path):
 
 
 @pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
-def test_resume_offset_rejects_non_dict_state(tmp_path, payload):
+async def test_download_rejects_non_dict_state(tmp_path, payload):
     """Same shape guard as clone state: a valid-JSON non-object is corrupt."""
     source = MediaSource("@channel", 42, None)
     destination = tmp_path / "out.bin"
-    state_path = tmp_path / "state.json"
-    part_path = tmp_path / "out.part"
+    state_path, part_path = _state_paths(source)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     part_path.write_bytes(b"partial")
     state_path.write_text(payload)
+    fake = FakeDownloadTelegram([b"abcdef"])
 
     with pytest.raises(PolicyError, match="state is invalid"):
-        _resume_offset(state_path, part_path, source, destination, _target())
+        await download_media(fake, source, "main", output=str(destination))
+
+    assert not destination.exists()
+    assert fake.iter_download_calls == []
 
 
-def test_resume_offset_rejects_truncated_utf8_state(tmp_path):
+async def test_download_rejects_truncated_utf8_state(tmp_path):
     source = MediaSource("@channel", 42, None)
     destination = tmp_path / "out.bin"
-    state_path = tmp_path / "state.json"
-    part_path = tmp_path / "out.part"
+    state_path, part_path = _state_paths(source)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     part_path.write_bytes(b"partial")
     state_path.write_bytes(b'{"offset": 1, "source": "\xd0')
+    fake = FakeDownloadTelegram([b"abcdef"])
 
     with pytest.raises(PolicyError, match="state is invalid"):
-        _resume_offset(state_path, part_path, source, destination, _target())
+        await download_media(fake, source, "main", output=str(destination))
+
+    assert not destination.exists()
+    assert fake.iter_download_calls == []
 
 
 @pytest.mark.parametrize("offset", [True, -1, 8, 1.0, "1"])
-def test_resume_offset_rejects_an_offset_that_is_not_a_byte_count(tmp_path, offset):
+async def test_download_rejects_an_offset_that_is_not_a_byte_count(tmp_path, offset):
     """`true` is a JSON boolean, not byte 1 of the partial (clone resume agrees)."""
     source = MediaSource("@channel", 42, None)
     destination = tmp_path / "out.bin"
-    state_path = tmp_path / "state.json"
-    part_path = tmp_path / "out.part"
+    state_path, part_path = _state_paths(source)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     part_path.write_bytes(b"partial")
     state_path.write_text(
         json.dumps(
             {
                 "source": _source_label(source),
                 "destination": str(destination),
+                "media_id": None,
+                "size": 6,
                 "offset": offset,
             }
         )
     )
+    fake = FakeDownloadTelegram([b"abcdef"])
 
     with pytest.raises(PolicyError, match="does not match requested output"):
-        _resume_offset(state_path, part_path, source, destination, _target())
+        await download_media(fake, source, "main", output=str(destination))
+
+    assert not destination.exists()
+    assert fake.iter_download_calls == []
     assert part_path.read_bytes() == b"partial"
 
 
@@ -431,15 +437,3 @@ async def test_resume_refuses_a_partial_file_whose_size_changed(tmp_path):
     assert resized.iter_download_calls[0]["offset"] == 0
     assert target.read_bytes() == b"new"
     assert result["resumed"] is False
-
-
-def _state(destination, *, media_id, size, offset=3):
-    return json.dumps(
-        {
-            "source": "@channel:42",
-            "destination": str(destination),
-            "media_id": media_id,
-            "size": size,
-            "offset": offset,
-        }
-    )

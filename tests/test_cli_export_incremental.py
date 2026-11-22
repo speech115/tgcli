@@ -201,3 +201,27 @@ def test_export_messages_resume_missing_file_exits_1(config_env, monkeypatch, tm
         )
         == 1
     )
+
+
+@pytest.mark.parametrize("bad", [True, False, 0, -1, "5", 5.0, None])
+def test_export_messages_resume_rejects_non_positive_int_id(
+    config_env, monkeypatch, tmp_path, capsys, bad
+):
+    fake = make_export_fake(messages=[make_message(1, "a")])
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "messages.jsonl"
+    destination.write_text(json.dumps({"id": bad}) + "\n", encoding="utf-8")
+    assert (
+        main(
+            [
+                "export",
+                "messages",
+                "@chan",
+                "--output",
+                str(destination),
+                "--resume",
+            ]
+        )
+        == 1
+    )
+    assert "no valid id" in capsys.readouterr().err

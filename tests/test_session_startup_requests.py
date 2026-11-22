@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 
 import pytest
 from telethon.tl import functions, types
 
 from tgcli import session
+from tgcli.cli import main
 from tgcli.config import Account
 
 ACCOUNT = Account(alias="a", api_id=1, api_hash="h", session="s")
@@ -159,3 +161,28 @@ async def test_a_held_session_fetches_get_me_once_per_command(state, monkeypatch
                 await tg.get_me()
 
     assert sender.sent == ["GetConfigRequest"] + ["GetUsersRequest"] * 3
+
+
+def test_cli_doctor_connect_sends_only_init_and_one_get_users(
+    state, tmp_path, monkeypatch, capsys
+):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'default = "a"\n\n[accounts.a]\napi_id = 1\napi_hash = "h"\nsession = "s"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TGCLI_CONFIG", str(config_path))
+    session_file = state / "sessions" / "s.session"
+    session_file.parent.mkdir(parents=True, exist_ok=True)
+    session_file.touch()
+    session_file.chmod(0o600)
+    sender = _install(monkeypatch)
+
+    exit_code = main(["--json", "doctor", "--connect"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["accounts"][0]["checks"]["authorized"] is True
+    assert payload["accounts"][0]["user"]["id"] == 42
+    assert sender.sent == ["GetConfigRequest", "GetUsersRequest"]

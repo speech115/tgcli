@@ -12,59 +12,94 @@ from telethon.tl import functions, types
 from tgcli.clone import snapshot
 
 
-def test_bar_renders_eighth_blocks():
-    assert snapshot._bar(0) == "░" * 10
-    assert snapshot._bar(100) == "█" * 10
-    assert snapshot._bar(50) == "█████" + "░" * 5
-
-
-def test_vote_word_russian_plurals():
-    assert snapshot._vote_word(1) == "голос"
-    assert snapshot._vote_word(2) == "голоса"
-    assert snapshot._vote_word(5) == "голосов"
-    assert snapshot._vote_word(11) == "голосов"
-    assert snapshot._vote_word(21) == "голос"
-
-
-def _poll_media(
+def _poll_message(
     *,
-    total_voters=4,
-    results=None,
-    public_voters=False,
-    quiz=False,
-    closed=False,
-    answers=None,
+    question: str = "Вопрос?",
+    counts: list[tuple[str, int]],
+    total_voters: int | None = None,
 ):
-    if answers is None:
-        answers = [
-            SimpleNamespace(text=SimpleNamespace(text="Да"), option=b"0"),
-            SimpleNamespace(text=SimpleNamespace(text="Нет"), option=b"1"),
-        ]
-    if results is None:
-        results = [
-            SimpleNamespace(option=b"0", voters=3),
-            SimpleNamespace(option=b"1", voters=1),
-        ]
-    return SimpleNamespace(
-        poll=SimpleNamespace(
-            question=SimpleNamespace(text="Вопрос?"),
-            answers=answers,
-            public_voters=public_voters,
-            quiz=quiz,
-            closed=closed,
-            hash=7,
-        ),
-        results=SimpleNamespace(total_voters=total_voters, results=results),
+    answers = [
+        types.PollAnswer(
+            text=types.TextWithEntities(text=label, entities=[]),
+            option=str(index).encode(),
+        )
+        for index, (label, _) in enumerate(counts)
+    ]
+    results = [
+        types.PollAnswerVoters(option=str(index).encode(), voters=voters)
+        for index, (_, voters) in enumerate(counts)
+    ]
+    total = (
+        sum(voters for _, voters in counts) if total_voters is None else total_voters
     )
+    media = types.MessageMediaPoll(
+        poll=types.Poll(
+            id=1,
+            question=types.TextWithEntities(text=question, entities=[]),
+            answers=answers,
+            hash=7,
+            public_voters=False,
+            quiz=False,
+            closed=False,
+        ),
+        results=types.PollResults(results=results, total_voters=total),
+    )
+    return SimpleNamespace(id=1, media=media)
 
 
-def test_poll_snapshot_text():
-    text, entities = snapshot._poll_snapshot(_poll_media())
-    assert "📊 Результаты опроса" in text
-    assert "Вопрос?" in text
-    assert "75%" in text and "3 голоса" in text
-    assert "Проголосовало: 4" in text
+@pytest.mark.asyncio
+async def test_render_poll_snapshot_formats_progress_bars_and_percentages():
+    full_text, full_entities, full_marker = await snapshot.render(
+        None,
+        _poll_message(counts=[("Все", 4), ("Никто", 0)]),
+    )
+    assert "📊 Результаты опроса" in full_text
+    assert "Вопрос?" in full_text
+    assert f"{'█' * 10} 100% · 4 голоса" in full_text
+    assert f"{'░' * 10} 0% · 0 голосов" in full_text
+    assert "Проголосовало: 4" in full_text
+    assert full_entities == []
+    assert full_marker is None
+
+    split_text, split_entities, split_marker = await snapshot.render(
+        None,
+        _poll_message(counts=[("Да", 2), ("Нет", 2)]),
+    )
+    assert f"{'█' * 5}{'░' * 5} 50% · 2 голоса" in split_text
+    assert split_entities == []
+    assert split_marker is None
+
+    skewed_text, skewed_entities, _ = await snapshot.render(
+        None,
+        _poll_message(counts=[("Да", 3), ("Нет", 1)]),
+    )
+    assert "75%" in skewed_text and "3 голоса" in skewed_text
+    assert "25%" in skewed_text and "1 голос" in skewed_text
+    assert skewed_entities == []
+
+
+@pytest.mark.asyncio
+async def test_render_poll_snapshot_formats_russian_vote_plurals():
+    text, entities, marker = await snapshot.render(
+        None,
+        _poll_message(
+            counts=[
+                ("Один", 1),
+                ("Два", 2),
+                ("Пять", 5),
+                ("Одиннадцать", 11),
+                ("Двадцать один", 21),
+            ]
+        ),
+    )
+    assert "1 голос\n" in text
+    assert "2 голоса\n" in text
+    assert "5 голосов\n" in text
+    assert "11 голосов\n" in text
+    assert "21 голос\n" in text
+    assert "Проголосовало: 40" in text
     assert entities == []
+    assert marker is None
 
 
 def test_story_render_links_known_username():
