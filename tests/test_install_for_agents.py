@@ -111,7 +111,9 @@ def test_connect_sets_up_every_agent_and_a_rerun_changes_nothing(tmp_path):
         ]:
             out = subprocess.run(
                 ["codex", "execpolicy", "check", "-r", str(policy), "--", *command],
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout
             assert json.loads(out)["decision"] == decision, command
 
