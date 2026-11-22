@@ -145,6 +145,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="authorize a named session role beside the primary",
     )
 
+    p_setup = sub.add_parser(
+        "setup",
+        help="Log in to Telegram through a page in the browser",
+        parents=[global_flags],
+    )
+    p_setup.add_argument(
+        "alias",
+        nargs="?",
+        metavar="ALIAS",
+        help="account alias (default: --account, the config default, or main)",
+    )
+    p_setup.add_argument(
+        "--no-browser",
+        dest="no_browser",
+        action="store_true",
+        help="print the page's link without opening a browser",
+    )
+
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
     p_dialogs.add_argument("--unread-only", action="store_true")

@@ -1,6 +1,6 @@
-"""Platform escape hatch for native dialogs and notifications.
+"""Platform escape hatch for native dialogs, notifications and the browser.
 
-Nothing else in the project may call `osascript`.
+Nothing else in the project may call `osascript` or open a browser.
 """
 
 from __future__ import annotations
@@ -8,12 +8,21 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import webbrowser
 
 from tgcli.errors import PolicyError
 
 
 def dialog_available() -> bool:
     return sys.platform == "darwin" and shutil.which("osascript") is not None
+
+
+def open_url(url: str) -> bool:
+    """Open `url` in the person's default browser; False when none opened."""
+    try:
+        return webbrowser.open(url)
+    except webbrowser.Error:
+        return False
 
 
 def ask_secret(title: str, prompt: str, *, hidden: bool) -> str:

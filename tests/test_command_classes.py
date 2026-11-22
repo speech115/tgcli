@@ -44,6 +44,7 @@ GATED_WRITES = {
     "archive transcribe": ["archive", "transcribe"],
     "clone sync": ["clone", "sync", "@chat"],
     "run": ["run", "--write", "-"],
+    "setup": ["setup"],
 }
 HANDSHAKE_COMMITS = {
     "clone init": ["clone", "init", "@chat", "--commit", "p"],

@@ -99,7 +99,9 @@ def validate_role_name(role: str) -> str:
 def load_config(path: Path | None = None) -> Config:
     path = path or default_config_path()
     if not path.exists():
-        raise ConfigError(f"config not found: {path}")
+        raise ConfigError(
+            f"config not found: {path}; to connect Telegram, run: tg setup"
+        )
     restrict_file(path)
     raw = tomllib.loads(path.read_text())
     accounts: dict[str, Account] = {}
