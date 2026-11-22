@@ -1,6 +1,6 @@
 {
   "name": "tgcli",
-  "description": "The tgcli skill, and a session-start check that tells Claude when tg is missing or not logged in.",
+  "description": "The tgcli skill, and a session-start check that tells the agent when tg is missing or not logged in.",
   "author": {
     "name": "speech115",
     "url": "https://github.com/speech115"

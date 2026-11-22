@@ -137,4 +137,4 @@ chat and `wait_time=3` on `client.iter_messages`.
 - `clone init --commit` creates 1–2 Telegram peers (`peers_to_create` in the
   preview). Keep to about one such init per account per day.
 - A program that runs many commands in a row starts `tg-serve` once instead:
-  [README](README.md#tg-serve-protocol).
+  [docs/DEVELOPERS.md](docs/DEVELOPERS.md#tg-serve-protocol).

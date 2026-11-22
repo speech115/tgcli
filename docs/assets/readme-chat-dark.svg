@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="540" viewBox="0 0 900 540" role="img" aria-labelledby="t d">
+<title id="t">tgcli</title>
+<desc id="d">A chat with an AI agent: it lists who is waiting for a reply in Telegram, drafts an answer, and asks before sending it.</desc>
+<g font-family='ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
+<rect width="900" height="540" fill="#0e1621"/>
+<rect x="100" y="40" width="700" height="460" rx="22" fill="#17212b" stroke="#253546"/>
+<path d="M100 62 a22 22 0 0 1 22 -22 h656 a22 22 0 0 1 22 22 v34 h-700 z" fill="#1d2a37"/>
+<line x1="100" y1="96" x2="800" y2="96" stroke="#253546"/>
+<circle cx="126" cy="68" r="6" fill="#3a4b5c"/>
+<circle cx="144" cy="68" r="6" fill="#3a4b5c"/>
+<circle cx="162" cy="68" r="6" fill="#3a4b5c"/>
+<circle cx="380.0" cy="68" r="12" fill="#2aabee"/>
+<text x="380.0" y="73" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">AI</text>
+<text x="400.0" y="74" font-size="17" font-weight="600" fill="#e8eef4">Your agent</text>
+<text x="498.0" y="74" font-size="15" fill="#8ca1b5">· uses tg</text>
+<rect x="352" y="116" width="418" height="46" rx="18" fill="#2b5278"/>
+<text x="370" y="146" font-size="18" fill="#ffffff">Who is waiting for my reply in Telegram?</text>
+<rect x="130" y="176" width="400" height="124" rx="18" fill="#202d3b"/>
+<text x="148" y="206" font-size="18" fill="#e8eef4">Three chats:</text>
+<text x="148" y="232" font-size="18" fill="#e8eef4">• Masha: “What time do we meet?”</text>
+<text x="148" y="258" font-size="18" fill="#e8eef4">• Work group: the October invoice</text>
+<text x="148" y="284" font-size="18" fill="#e8eef4">• Andrey: a voice message, 2 min</text>
+<rect x="582" y="314" width="188" height="46" rx="18" fill="#2b5278"/>
+<text x="600" y="344" font-size="18" fill="#ffffff">Tell Masha: at 7</text>
+<rect x="130" y="374" width="430" height="104" rx="18" fill="#2a2618" stroke="#6b5a2a"/>
+<text x="148" y="406" font-size="18" fill="#e8eef4">Send to Masha: “At 7, see you!”</text>
+<rect x="148" y="424" width="116" height="38" rx="19" fill="#2aabee"/>
+<text x="206" y="449" font-size="17" font-weight="600" text-anchor="middle" fill="#ffffff">Send</text>
+<rect x="276" y="424" width="116" height="38" rx="19" fill="#2a3a4b"/>
+<text x="334" y="449" font-size="17" font-weight="600" text-anchor="middle" fill="#c9d6e2">Cancel</text>
+</g>
+</svg>
