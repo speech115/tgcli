@@ -82,7 +82,7 @@ command -v tg
 
 Check the output:
 
-- `tg --version` prints a version number such as `5.0.0`.
+- `tg --version` prints a version number such as `5.1.0`.
 - `command -v tg` prints the path in `uv tool dir --bin`, usually
   `~/.local/bin/tg`. If it prints another path, an older `tg` comes first.
   Find out which program it belongs to with `ls -l` on that path. Remove that
