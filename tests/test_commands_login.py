@@ -593,6 +593,39 @@ def test_login_after_a_keep_session_remove_restores_the_kept_session(
     assert not Path(str(kept) + ".bak").exists()
 
 
+def test_new_alias_set_up_by_another_login_meanwhile_keeps_that_session(
+    env, fake_client, monkeypatch, capsys
+):
+    """A second login (another `accounts login`, or `tg setup`) can finish the
+    same new alias while this one waits on Telegram. Promoting replaced its
+    session with no `.bak`, then the config refused the duplicate alias, so
+    the other login's config pointed at this login's key."""
+    start = ["accounts", "login", "work", "--phone", PHONE, "--json"]
+    assert main([*start, "--api-id", "7", "--api-hash", "h7"]) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+    other = env["state"] / "sessions" / "work.session"
+    sign_in = fake_client.sign_in
+
+    async def other_login_finishes(*args, **kwargs):
+        other.write_bytes(b"other-key")
+        with env["config"].open("a") as config:
+            config.write(
+                '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+            )
+        return await sign_in(*args, **kwargs)
+
+    monkeypatch.setattr(fake_client, "sign_in", other_login_finishes)
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 3
+    assert other.read_bytes() == b"other-key"
+    assert not Path(str(other) + ".bak").exists()
+    assert load_config().accounts["work"].api_id == 5
+
+
 def test_continue_after_the_account_was_removed_does_not_add_it_back(
     env, fake_client, capsys
 ):

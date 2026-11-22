@@ -130,7 +130,9 @@ tg setup
 - Exit 2 with `setup was cancelled in the browser`: the person pressed
   Cancel. Do not start it again on your own; ask whether they want to try now.
 - Exit 2 with `another tg setup is already running`: a page is already open.
-  Ask the person to finish or close it, then run `tg setup` once more.
+  Ask the person to finish or close it, then go back to the start of this
+  step: `tg doctor --connect` shows whether that page already connected the
+  account.
 - Exit 2 with any other `BLOCKED` message means `TGCLI_READONLY=1` is set in
   your environment. Run that one command as `TGCLI_READONLY=0 tg setup`.
 - `invalid choice: 'setup'` means the installed tgcli is older than `tg setup`.
@@ -318,12 +320,13 @@ tg --readonly --json dialogs --limit 3
 ```
 
 - `doctor` reports `"ok": true` and the account's `user`.
-- `dialogs` exits 0 and lists three chats.
+- `dialogs` exits 0 and lists up to three chats. A new account may have
+  fewer; that is fine.
 
 Tell the person, in plain words:
 
 - that tgcli is installed and which Telegram account is connected;
-- the names of the three chats, as proof that it works;
+- the names of the chats it listed, as proof that it works;
 - which AI apps now know about `tg`;
 - that they should start a new chat, and restart Codex or Antigravity if they
   use it;
