@@ -126,13 +126,18 @@ tg setup
   In Claude Code, run it in the background and wait for it. In other agents,
   use the longest timeout your shell tool allows. If your tool stopped it
   anyway, run `tg setup` once more.
-- Exit 0 means the account is connected. On any other exit code, tell the
-  person what the error message says in plain words, then run `tg setup` once
-  more. If it fails again, stop and tell the person what failed.
+- Exit 0 means the account is connected.
+- Exit 2 with `setup was cancelled in the browser`: the person pressed
+  Cancel. Do not start it again on your own; ask whether they want to try now.
+- Exit 2 with `another tg setup is already running`: a page is already open.
+  Ask the person to finish or close it, then run `tg setup` once more.
+- Exit 2 with any other `BLOCKED` message means `TGCLI_READONLY=1` is set in
+  your environment. Run that one command as `TGCLI_READONLY=0 tg setup`.
 - `invalid choice: 'setup'` means the installed tgcli is older than `tg setup`.
   Run step 4 again, once. If the error stays, stop and tell the person.
-- Exit 2 with `BLOCKED` means `TGCLI_READONLY=1` is set in your environment.
-  Run that one command as `TGCLI_READONLY=0 tg setup`.
+- On any other exit code, tell the person what the error message says in
+  plain words, then run `tg setup` once more. If it fails again, stop and tell
+  the person what failed.
 
 ## 6. Connect your agents
 
