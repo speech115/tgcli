@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from telethon import errors as telethon_errors
+from telethon import errors as telethon_errors, utils
 from telethon.tl import functions, types
 
 from tgcli import pace, safety
@@ -62,7 +62,9 @@ async def copy_profile(tg, source, destination, account_alias, clone_state):
     """
     clone_id = clone_state.clone_id
     if isinstance(source, types.User):
-        full = await tg(functions.users.GetFullUserRequest(source))  # type: ignore
+        input_user = utils.get_input_user(source)
+        assert input_user is not None
+        full = await tg(functions.users.GetFullUserRequest(input_user))
         about = getattr(full.full_user, "about", None) or ""
     elif isinstance(source, types.Chat):
         full = await tg(functions.messages.GetFullChatRequest(chat_id=source.id))

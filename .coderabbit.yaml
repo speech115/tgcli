@@ -1,7 +1,4 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit review settings. Kept quiet on purpose: the gate (scripts/gate.sh)
-# already enforces style, lint, and types, and AGENTS.md prefers checks that
-# run over diff-reading review. CodeRabbit is here to catch real bugs.
 language: en-US
 tone_instructions: >-
   Comment only on likely bugs, security problems, data loss, or broken
@@ -48,7 +45,6 @@ reviews:
         data or diagnostics on the wrong stream, exit codes outside errors.py,
         and leaked secrets or phone numbers. Do not repeat ruff or pyright.
   tools:
-    # The gate runs ruff and pyright; prose and Markdown linters only add noise.
     ruff:
       enabled: false
     flake8:

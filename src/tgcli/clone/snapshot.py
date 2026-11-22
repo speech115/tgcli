@@ -34,6 +34,11 @@ def _breakdown_available(results) -> bool:
     return bool(getattr(results, "results", None))
 
 
+def _answer_option(answer: object) -> bytes | None:
+    option = getattr(answer, "option", None)
+    return bytes(option) if option is not None else None
+
+
 def _poll_snapshot(
     media: types.MessageMediaPoll, *, chosen_option: bytes | None = None
 ) -> tuple[str, list]:
@@ -56,7 +61,8 @@ def _poll_snapshot(
         return text, []
     options = []
     for answer in media.poll.answers:
-        voters = raw_counts.get(answer.option, 0)  # type: ignore
+        option = _answer_option(answer)
+        voters = raw_counts.get(option, 0) if option is not None else 0
         percent = round(voters * 100 / total) if total else 0
         options.append(
             f"{answer.text.text}\n{_bar(percent)} {percent}% · "
@@ -103,7 +109,8 @@ async def _capture_breakdown(
     peer,
     account_alias: str,
 ) -> tuple[types.MessageMediaPoll, bytes | None, dict[str, Any]]:
-    option = bytes(media.poll.answers[0].option)  # type: ignore[arg-type]
+    option = _answer_option(media.poll.answers[0])
+    assert option is not None
     cast = functions.messages.SendVoteRequest(
         peer=peer, msg_id=message.id, options=[option]
     )

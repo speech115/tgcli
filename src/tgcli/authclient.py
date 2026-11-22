@@ -46,7 +46,8 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
                 ) from exc
         finally:
             if tg.is_connected():
-                await tg.disconnect()  # type: ignore[func-returns-value]
+                if (done := tg.disconnect()) is not None:
+                    await done
 
 
 async def probe_authorized(account: Account, role: str | None = None) -> bool:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, NoReturn, TypeAlias
+from typing import Any, ClassVar, Literal, NoReturn
 
 from tgcli import messages
 from tgcli.commands import (
@@ -80,9 +80,7 @@ class MediaManifest:
     name: ClassVar[Literal["media.manifest"]] = "media.manifest"
 
 
-ReadOperation: TypeAlias = (
-    Dialogs | Read | Search | Message | Info | Resolve | MediaManifest
-)
+type ReadOperation = Dialogs | Read | Search | Message | Info | Resolve | MediaManifest
 
 
 @dataclass(frozen=True)

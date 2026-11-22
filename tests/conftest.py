@@ -370,3 +370,12 @@ TRANSIENT_ERRORS = [
 def transient_exit_code(error: Exception) -> int:
     flood = (telethon_errors.FloodWaitError, telethon_errors.FloodPremiumWaitError)
     return 5 if isinstance(error, flood) else 1
+
+
+@pytest.fixture
+def config_env(tmp_path, monkeypatch):
+    from tests.fakes.clone import SAMPLE
+
+    path = tmp_path / "config.toml"
+    path.write_text(SAMPLE)
+    monkeypatch.setenv("TGCLI_CONFIG", str(path))

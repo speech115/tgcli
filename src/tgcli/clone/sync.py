@@ -572,7 +572,7 @@ async def _finish(run: _Run, warned_unstarted) -> dict:
             rows=sync_rows(data),
         )
     if capped and not more:
-        data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
+        data["stop_reason"] = "wall_clock_cap"
         data["resume"] = {"cursor": clone_state.cursor}
     return data
 

@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from telethon import utils
 from telethon.tl import functions, types
 
 from tgcli import safety
@@ -84,7 +85,9 @@ def _pin_state_of(clone_state) -> PinState:
 async def _source_pinned_msg_id(tg, source) -> int | None:
     """Read the source's current pinned_msg_id via the matching GetFull* RPC."""
     if isinstance(source, types.User):
-        full = await tg(functions.users.GetFullUserRequest(source))  # type: ignore[arg-type]
+        input_user = utils.get_input_user(source)
+        assert input_user is not None
+        full = await tg(functions.users.GetFullUserRequest(input_user))
         return getattr(full.full_user, "pinned_msg_id", None)
     if isinstance(source, types.Chat):
         full = await tg(functions.messages.GetFullChatRequest(chat_id=source.id))

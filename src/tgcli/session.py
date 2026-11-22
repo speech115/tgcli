@@ -317,4 +317,5 @@ async def client(
                 f"session {label!r} needs reauthentication; authorize it again"
             ) from exc
         finally:
-            await tg.disconnect()  # type: ignore
+            if (done := tg.disconnect()) is not None:
+                await done
