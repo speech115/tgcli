@@ -146,9 +146,10 @@ tg setup
 The person may use more than one AI app. Set up `tg` for each one installed on
 this computer, so that a new chat in any of them knows about `tg`.
 
-Claude Code gets the tgcli plugin. It carries the skill and a check at the
-start of each session that says when `tg` is missing or not logged in. If the
-plugin cannot be installed, Claude Code gets a copy of the skill instead.
+Claude Code, Codex and Antigravity each get the tgcli plugin. It carries the
+skill and a check at the start of each session that says when `tg` is missing
+or not logged in. An agent whose plugin cannot be installed gets a copy of the
+skill instead, in the next block.
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -164,13 +165,28 @@ elif [ -d "$claude_dir" ]; then
   cp "$HOME/.agents/skills/tgcli/SKILL.md" "$claude_dir/skills/tgcli/SKILL.md"
   echo "claude code: skill $claude_dir/skills/tgcli"
 fi
+if command -v codex >/dev/null 2>&1; then
+  codex plugin marketplace add speech115/tgcli \
+    && codex plugin marketplace upgrade tgcli \
+    && codex plugin add tgcli@tgcli \
+    && echo "codex: plugin tgcli@tgcli"
+fi
+if command -v agy >/dev/null 2>&1; then
+  sha=$(curl -fsSL -H 'Accept: application/vnd.github.sha' https://api.github.com/repos/speech115/tgcli/commits/main) || sha=main
+  src=$(mktemp -d)
+  curl -fsSL "https://github.com/speech115/tgcli/archive/$sha.tar.gz" | tar -xz -C "$src" \
+    && agy plugin install "$src"/tgcli-*/plugins/tgcli \
+    && echo "antigravity: plugin tgcli"
+  rm -rf "$src"
+fi
 ```
 
 The next block sets up the other agents. It acts only on agents whose folders
 exist:
 
 - `~/.agents/skills/tgcli`, written in step 4, is the skill for Codex and
-  Gemini CLI. Antigravity gets a copy in `~/.gemini/config/skills/tgcli`.
+  Gemini CLI. Antigravity without the plugin gets a copy in
+  `~/.gemini/config/skills/tgcli`; with the plugin, that copy is removed.
 - A short instructions block, between `tgcli:begin` and `tgcli:end` markers,
   goes into each global instructions file: `~/.claude/CLAUDE.md`, Codex's
   `~/.codex/AGENTS.md` (or a non-empty `AGENTS.override.md`), and
@@ -238,7 +254,11 @@ if claude.is_dir():
 gemini = home / ".gemini"
 if gemini.is_dir():
     put_block(gemini / "GEMINI.md")
-    put_skill(gemini / "config/skills/tgcli/SKILL.md")
+    copy = gemini / "config/skills/tgcli"
+    if (gemini / "config/plugins/tgcli").is_dir():
+        shutil.rmtree(copy, ignore_errors=True)
+    else:
+        put_skill(copy / "SKILL.md")
 
 codex = Path(os.environ.get("CODEX_HOME", home / ".codex"))
 if codex.is_dir():
@@ -351,6 +371,13 @@ uv tool uninstall tgcli
 if command -v claude >/dev/null 2>&1; then
   claude plugin uninstall tgcli@tgcli
   claude plugin marketplace remove tgcli
+fi
+if command -v codex >/dev/null 2>&1; then
+  codex plugin remove tgcli@tgcli
+  codex plugin marketplace remove tgcli
+fi
+if command -v agy >/dev/null 2>&1; then
+  agy plugin uninstall tgcli
 fi
 rm -rf "$HOME/.agents/skills/tgcli" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/tgcli" \
   "$HOME/.gemini/config/skills/tgcli" "${CODEX_HOME:-$HOME/.codex}/rules/tgcli.rules"

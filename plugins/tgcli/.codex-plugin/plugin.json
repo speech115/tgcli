@@ -1,0 +1,19 @@
+{
+  "name": "tgcli",
+  "description": "The tgcli skill, and a session-start check that tells the agent when tg is missing or not logged in.",
+  "keywords": ["telegram", "tgcli", "tg"],
+  "interface": {
+    "displayName": "Telegram (tgcli)",
+    "shortDescription": "Read, search and answer your own Telegram",
+    "longDescription": "Your agent reads, searches and downloads from your own Telegram account through the tg command. Nothing is sent, edited or deleted until you approve the exact text.",
+    "developerName": "speech115",
+    "category": "Productivity",
+    "websiteURL": "https://github.com/speech115/tgcli",
+    "defaultPrompt": [
+      "What is unread in my Telegram?",
+      "Who is waiting for my reply in Telegram?",
+      "Summarize this week's posts in a Telegram channel"
+    ],
+    "brandColor": "#2AABEE"
+  }
+}

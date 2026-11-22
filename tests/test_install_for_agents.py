@@ -164,6 +164,26 @@ def test_connect_touches_only_agents_that_are_installed(tmp_path):
     assert not (home / ".gemini").exists()
 
 
+def test_connect_leaves_antigravity_to_its_plugin_once_installed(tmp_path):
+    home = agent_home(tmp_path, ".gemini")
+    run_guide(home, CONNECT)
+    copy = home / ".gemini" / "config" / "skills" / "tgcli"
+    assert (copy / "SKILL.md").is_file()
+
+    (home / ".gemini" / "config" / "plugins" / "tgcli").mkdir(parents=True)
+    run_guide(home, CONNECT)
+
+    assert not copy.exists()
+    assert (home / ".gemini" / "GEMINI.md").read_text().count(BEGIN) == 1
+
+
+def test_codex_manifest_names_the_same_plugin_without_a_version():
+    manifest = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+
+    assert manifest["name"] == "tgcli"
+    assert "version" not in manifest
+
+
 def test_uninstall_removes_what_connect_added(tmp_path):
     home = agent_home(tmp_path, ".claude", ".codex", ".gemini")
     (home / ".codex" / "config.toml").write_text(CODEX_CONFIG)

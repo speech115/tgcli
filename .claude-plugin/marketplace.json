@@ -9,7 +9,7 @@
     {
       "name": "tgcli",
       "source": "./plugins/tgcli",
-      "description": "The tgcli skill, and a session-start check that tells Claude when tg is missing or not logged in.",
+      "description": "The tgcli skill, and a session-start check that tells the agent when tg is missing or not logged in.",
       "category": "productivity",
       "homepage": "https://github.com/speech115/tgcli"
     }
