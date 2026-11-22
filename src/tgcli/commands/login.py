@@ -147,6 +147,7 @@ def _user_dict(me) -> dict:
     return {
         "id": getattr(me, "id", None),
         "username": getattr(me, "username", None),
+        "first_name": getattr(me, "first_name", None),
         "phone": mask_phone(phone) if phone else None,
     }
 

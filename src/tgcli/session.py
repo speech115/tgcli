@@ -308,7 +308,8 @@ async def client(
                     )
                 raise ConfigError(
                     f"session {account.session!r} is not authorized; "
-                    "run: tg accounts login <alias> --phone PHONE"
+                    f"run: tg setup {account.alias} "
+                    f"(or tg accounts login {account.alias} --phone PHONE)"
                 )
             yield tg
         except telethon_errors.UnauthorizedError as exc:
