@@ -23,6 +23,11 @@ command is in `tg COMMAND --help`; this page is what the help does not say.
   120 s, then exit 3; do not loop. Scheduled jobs use their own role:
   `accounts login ALIAS --role job --phone PHONE`, then `--session-role job`.
   A missing role is exit 3, never a silent fallback.
+- No config, no account, or a session that is not logged in: run `tg --json setup
+  [ALIAS]`. It opens a page in the person's browser (`--no-browser` only prints
+  its link on stderr), waits up to 15 minutes while they get their own api keys
+  and scan a QR code, then prints one JSON result. Run it in the background or
+  with a tool timeout of at least 15 minutes. Exit 2 means they cancelled.
 - Exit 3 `needs reauthentication` means the session is dead: log it in again
   (`accounts login ALIAS --phone PHONE`, then `--continue LOGIN_ID --code …`).
 - Never open a `.session` file with bare `python3`; use `tg` or this
@@ -54,7 +59,7 @@ command is in `tg COMMAND --help`; this page is what the help does not say.
 | Offline archive | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO]` · `archive read CHAT [--around-id ID]` · `archive status` |
 | Archive upkeep | `archive init` · `archive add/remove/list CHAT` · `archive backfill CHAT… \| --private` · `archive sync` · `archive transcribe` |
 | Clone a chat | `tg --json clone init SOURCE [--no-comments]`, then `clone init SOURCE --commit PREVIEW_ID`; copy with `tg --max-runtime 3600 --json clone sync SOURCE` or `--all`; `clone status` |
-| Accounts | `accounts list` · `accounts show ALIAS` · `accounts login` · `accounts remove ALIAS [--role job] --confirm` |
+| Accounts | `setup [ALIAS]` (browser login for a person) · `accounts list` · `accounts show ALIAS` · `accounts login` · `accounts remove ALIAS [--role job] --confirm` |
 | Health | `tg --json doctor [--connect]` |
 | Anything else | `tg run SCRIPT` (below) |
 
