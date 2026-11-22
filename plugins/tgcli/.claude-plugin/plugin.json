@@ -1,0 +1,11 @@
+{
+  "name": "tgcli",
+  "description": "The tgcli skill, and a session-start check that tells Claude when tg is missing or not logged in.",
+  "author": {
+    "name": "speech115",
+    "url": "https://github.com/speech115"
+  },
+  "homepage": "https://github.com/speech115/tgcli",
+  "repository": "https://github.com/speech115/tgcli",
+  "license": "MIT"
+}
